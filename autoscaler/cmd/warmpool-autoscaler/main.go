@@ -11,6 +11,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -59,15 +60,29 @@ type config struct {
 }
 
 func main() {
-	if err := run(); err != nil {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	if err := run(ctx, os.Args[1:], os.Stdout); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
 	}
 }
 
-func run() error {
-	cfg := parseFlags()
-	log := newLogger(cfg.logLevel)
+// run is the program without the process around it: it configures itself from
+// args, serves until ctx is done or the listener fails, and returns what the
+// process should exit on. Logs go to out.
+func run(ctx context.Context, args []string, out io.Writer) error {
+	cfg, err := parseFlags(flag.NewFlagSet("warmpool-autoscaler", flag.ContinueOnError), args)
+	if errors.Is(err, flag.ErrHelp) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if cfg.interval <= 0 {
+		return fmt.Errorf("--interval must be positive, got %s", cfg.interval)
+	}
+	log := newLogger(cfg.logLevel, out)
 
 	loc, err := time.LoadLocation(cfg.timezone)
 	if err != nil {
@@ -113,18 +128,22 @@ func run() error {
 		Log:        log,
 	}
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 
 	srv := &http.Server{
 		Addr:              cfg.listen,
 		Handler:           routes(rec, cfg.interval),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
+	// A listener that fails (port taken, bad address) ends the run with that
+	// error rather than a clean exit: without /metrics and /readyz the pod
+	// would look alive while nobody could tell.
+	serveErr := make(chan error, 1)
 	go func() {
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			log.Error("http server", "err", err)
-			stop()
+			serveErr <- err
+			cancel()
 		}
 	}()
 
@@ -132,9 +151,15 @@ func run() error {
 		"target", cfg.namespace+"/"+cfg.deployment, "interval", cfg.interval, "schedule", cfg.schedule)
 	ctrl.Run(ctx, cfg.interval)
 
-	shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	return srv.Shutdown(shutdown)
+	shutdown, done := context.WithTimeout(context.Background(), 5*time.Second)
+	defer done()
+	err = srv.Shutdown(shutdown)
+	select {
+	case serve := <-serveErr:
+		return fmt.Errorf("http server: %w", serve)
+	default:
+		return err
+	}
 }
 
 func routes(rec *metrics.Recorder, interval time.Duration) http.Handler {
@@ -223,9 +248,10 @@ func (m *memoryScaler) SetReplicas(_ context.Context, _, _ string, n int) error 
 	return nil
 }
 
-func parseFlags() config {
+// parseFlags defines every flag on fs, with its default taken from the
+// environment variable named in its help text, and parses args.
+func parseFlags(fs *flag.FlagSet, args []string) (config, error) {
 	var c config
-	fs := flag.CommandLine
 	str(fs, &c.source, "source", "QUEUE_SOURCE", "gitlab", "queue signal: gitlab or static")
 	str(fs, &c.staticSequence, "static-sequence", "STATIC_SEQUENCE", "0,4,12,30,30,8,0,0,0", "comma-separated queue depths replayed by --source=static")
 	str(fs, &c.gitlabURL, "gitlab-url", "GITLAB_URL", "", "GitLab base URL")
@@ -247,8 +273,10 @@ func parseFlags() config {
 	duration(fs, &c.interval, "interval", "INTERVAL", 15*time.Second, "reconcile interval")
 	str(fs, &c.listen, "listen", "LISTEN_ADDR", ":8080", "address for /metrics, /healthz and /readyz")
 	str(fs, &c.logLevel, "log-level", "LOG_LEVEL", "info", "debug, info, warn or error")
-	flag.Parse()
-	return c
+	if err := fs.Parse(args); err != nil {
+		return config{}, err
+	}
+	return c, nil
 }
 
 func str(fs *flag.FlagSet, p *string, name, env, def, usage string) {
@@ -295,10 +323,10 @@ func splitList(s string) []string {
 	return out
 }
 
-func newLogger(level string) *slog.Logger {
+func newLogger(level string, out io.Writer) *slog.Logger {
 	var l slog.Level
 	if err := l.UnmarshalText([]byte(level)); err != nil {
 		l = slog.LevelInfo
 	}
-	return slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: l}))
+	return slog.New(slog.NewJSONHandler(out, &slog.HandlerOptions{Level: l}))
 }

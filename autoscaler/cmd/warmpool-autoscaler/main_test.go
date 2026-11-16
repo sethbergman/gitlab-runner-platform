@@ -191,10 +191,10 @@ func TestFlagHelpersTakeDefaultsFromEnvironment(t *testing.T) {
 
 func TestNewLoggerLevels(t *testing.T) {
 	ctx := context.Background()
-	if !newLogger("debug").Enabled(ctx, slog.LevelDebug) {
+	if !newLogger("debug", io.Discard).Enabled(ctx, slog.LevelDebug) {
 		t.Error("debug logger does not enable debug")
 	}
-	l := newLogger("nonsense")
+	l := newLogger("nonsense", io.Discard)
 	if l.Enabled(ctx, slog.LevelDebug) || !l.Enabled(ctx, slog.LevelInfo) {
 		t.Error("unknown level should fall back to info")
 	}
