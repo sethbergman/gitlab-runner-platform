@@ -93,19 +93,67 @@ jobs:
             -f "https://raw.githubusercontent.com/argoproj/argo-cd/${ARGOCD_VERSION}/manifests/install.yaml"
           kubectl -n argocd rollout status deploy/argocd-repo-server --timeout=300s
           kubectl -n argocd rollout status statefulset/argocd-application-controller --timeout=300s
-      - name: Apply projects and the autoscaler app at this commit
+          kubectl -n argocd rollout status deploy/argocd-applicationset-controller --timeout=300s
+      - name: Point every Argo CD object at this commit
         run: |
-          retarget() {
+          mkdir -p "$RUNNER_TEMP/gitops/bootstrap" "$RUNNER_TEMP/gitops/platform"
+          for f in gitops/bootstrap/*.yaml gitops/platform/*.yaml; do
             sed -e "s#https://github.com/sethbergman/gitlab-runner-platform.git#${REPO_URL}#g" \
-                -e "s#targetRevision: main#targetRevision: ${REVISION}#g" "$1"
-          }
-          retarget gitops/platform/appproject.yaml | kubectl apply -f -
-          retarget gitops/platform/warmpool-autoscaler.yaml | kubectl apply -f -
+                -e "s#targetRevision: main#targetRevision: ${REVISION}#g" \
+                -e "s#revision: main#revision: ${REVISION}#g" \
+                "$f" > "$RUNNER_TEMP/$f"
+          done
+          grep -rn -E 'repoURL:|[rR]evision:' "$RUNNER_TEMP/gitops"
+      - name: Root app renders gitops/platform
+        run: |
+          # The app-of-apps as documented, minus its automated sync: the
+          # objects it manages are applied in the next step pointed at this
+          # commit, and a self-healing root would reset them to what Git says.
+          yq 'del(.spec.syncPolicy)' "$RUNNER_TEMP/gitops/bootstrap/root.yaml" | kubectl apply -f -
+          for i in $(seq 1 60); do
+            kubectl -n argocd get application/platform-root -o jsonpath='{.status.resources[*].kind}' | grep -q . && break
+            sleep 5
+          done
+          conditions=$(kubectl -n argocd get application/platform-root -o jsonpath='{.status.conditions[*].type}')
+          test -z "${conditions}" || { echo "root app conditions: ${conditions}"; exit 1; }
+          kubectl -n argocd get application/platform-root \
+            -o jsonpath='{range .status.resources[*]}{.kind}/{.name}{"\n"}{end}' | sort > "$RUNNER_TEMP/root-resources"
+          printf '%s\n' AppProject/ci-system AppProject/ci-tenants \
+            Application/warmpool-autoscaler ApplicationSet/runner-tenants | sort | diff - "$RUNNER_TEMP/root-resources"
+      - name: Apply the projects, the autoscaler app and the tenant ApplicationSet
+        run: kubectl apply -f "$RUNNER_TEMP/gitops/platform"
       - name: App syncs cleanly
         run: |
           kubectl -n argocd wait application/warmpool-autoscaler \
             --for=jsonpath='{.status.sync.status}'=Synced --timeout=300s
           kubectl -n gitlab-runner-system get deploy,role,rolebinding,networkpolicy
+      - name: ApplicationSet creates one synced runner release per tenant
+        run: |
+          # What Terraform provides on a real cluster, outside Argo CD's reach:
+          # the tenant namespace and its runner token.
+          for dir in gitops/tenants/*/; do
+            tenant=$(basename "${dir}")
+            kubectl create namespace "ci-${tenant}"
+            # Both keys: the chart mounts them as non-optional items.
+            kubectl -n "ci-${tenant}" create secret generic gitlab-runner-token \
+              --from-literal=runner-token=glrt-e2e-placeholder --from-literal=runner-registration-token=
+          done
+          for dir in gitops/tenants/*/; do
+            tenant=$(basename "${dir}")
+            for i in $(seq 1 36); do
+              kubectl -n argocd get "application/runner-${tenant}" >/dev/null 2>&1 && break
+              sleep 5
+            done
+            kubectl -n argocd wait "application/runner-${tenant}" \
+              --for=jsonpath='{.status.sync.status}'=Synced --timeout=300s
+            test "$(kubectl -n argocd get "application/runner-${tenant}" -o jsonpath='{.spec.project}')" = ci-tenants
+            test "$(kubectl -n argocd get "application/runner-${tenant}" -o jsonpath='{.spec.destination.namespace}')" = "ci-${tenant}"
+            kubectl -n "ci-${tenant}" get deploy,serviceaccount,configmap,service
+          done
+          # Exactly the folders under gitops/tenants, nothing else.
+          kubectl -n argocd get applications -l platform.ci/tenant \
+            -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' | sort > "$RUNNER_TEMP/tenant-apps"
+          ls gitops/tenants | sed 's#^#runner-#' | sort | diff - "$RUNNER_TEMP/tenant-apps"
       - name: Autoscaler-owned replicas are not treated as drift
         run: |
           # Act like the autoscaler, then force Argo CD to compare against Git.
@@ -131,7 +179,9 @@ jobs:
           echo "self-heal did not revert drift"; exit 1
       - name: Argo CD state on failure
         if: failure()
-        run: kubectl -n argocd get application warmpool-autoscaler -o yaml
+        run: |
+          kubectl -n argocd get applications,applicationsets
+          kubectl -n argocd get applications -o yaml
 
   checkov:
     name: Checkov (IaC security)
