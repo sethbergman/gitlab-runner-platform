@@ -162,7 +162,7 @@ jobs:
       # Derive the tag from the event: "main" on a push, "v1.2.3" on a tag,
       # "pr-12" on a pull request. github.ref_name is "12/merge" on a pull
       # request, which is not a valid image tag and failed every PR build.
-      - uses: docker/metadata-action@v5
+      - uses: docker/metadata-action@v6
         id: meta
         with:
           images: ghcr.io/${{ github.repository_owner }}/warmpool-autoscaler
