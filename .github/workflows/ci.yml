@@ -106,7 +106,6 @@ jobs:
     runs-on: ubuntu-latest
     needs: [manifests]
     env:
-      ARGOCD_VERSION: v3.5.0
       # Point Argo CD at the commit under test, in whichever repo it lives.
       REPO_URL: ${{ github.event.pull_request.head.repo.clone_url || format('{0}/{1}.git', github.server_url, github.repository) }}
       REVISION: ${{ github.event.pull_request.head.sha || github.sha }}
@@ -117,6 +116,10 @@ jobs:
           cluster_name: gitops-e2e
       - name: Install Argo CD
         run: |
+          # Pinned in .github/e2e/argocd-version rather than here, so that
+          # upstream.yml can bump it: a workflow token may not edit workflows.
+          ARGOCD_VERSION=$(cat .github/e2e/argocd-version)
+          echo "Argo CD ${ARGOCD_VERSION}"
           kubectl create namespace argocd
           kubectl apply -n argocd --server-side --force-conflicts \
             -f "https://raw.githubusercontent.com/argoproj/argo-cd/${ARGOCD_VERSION}/manifests/install.yaml"
