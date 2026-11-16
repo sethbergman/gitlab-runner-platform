@@ -62,8 +62,9 @@ jobs:
           go-version: "1.27"
           cache: false
       - run: go install github.com/yannh/kubeconform/cmd/kubeconform@v0.6.7
-      - name: kubeconform
-        run: kubectl kustomize deploy/autoscaler | "$(go env GOPATH)/bin/kubeconform" -strict -summary -
+      - run: echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+      - name: kubeconform (deploy/ via Kustomize, and the Argo CD objects under gitops/)
+        run: make manifests
       - name: promtool
         run: |
           docker run --rm -v "$PWD/observability:/rules:ro" --entrypoint promtool \
