@@ -21,7 +21,7 @@ jobs:
       run:
         working-directory: autoscaler
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
           go-version-file: autoscaler/go.mod
@@ -38,8 +38,8 @@ jobs:
     name: Terraform (fmt, validate)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: hashicorp/setup-terraform@v3
+      - uses: actions/checkout@v7
+      - uses: hashicorp/setup-terraform@v4
         with:
           terraform_version: "~1.9"
       - run: terraform fmt -check -recursive terraform
@@ -56,7 +56,7 @@ jobs:
     name: Manifests, rules, dashboard
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
           go-version: "1.27"
@@ -81,7 +81,7 @@ jobs:
       REPO_URL: ${{ github.event.pull_request.head.repo.clone_url || format('{0}/{1}.git', github.server_url, github.repository) }}
       REVISION: ${{ github.event.pull_request.head.sha || github.sha }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: helm/kind-action@v1
         with:
           cluster_name: gitops-e2e
@@ -136,7 +136,7 @@ jobs:
     name: Checkov (IaC security)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: bridgecrewio/checkov-action@v12
         with:
           directory: .
@@ -151,9 +151,9 @@ jobs:
       contents: read
       packages: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
         if: startsWith(github.ref, 'refs/tags/v')
         with:
           registry: ghcr.io
@@ -162,7 +162,7 @@ jobs:
       # Derive the tag from the event: "main" on a push, "v1.2.3" on a tag,
       # "pr-12" on a pull request. github.ref_name is "12/merge" on a pull
       # request, which is not a valid image tag and failed every PR build.
-      - uses: docker/metadata-action@v5
+      - uses: docker/metadata-action@v6
         id: meta
         with:
           images: ghcr.io/${{ github.repository_owner }}/warmpool-autoscaler
@@ -170,7 +170,7 @@ jobs:
             type=ref,event=branch
             type=ref,event=tag
             type=ref,event=pr
-      - uses: docker/build-push-action@v6
+      - uses: docker/build-push-action@v7
         with:
           context: autoscaler
           build-args: VERSION=${{ steps.meta.outputs.version }}
