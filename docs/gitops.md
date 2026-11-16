@@ -49,6 +49,8 @@ CI proves both halves on every push (`gitops-e2e` job, on a kind cluster):
 - scaling the warm pool by hand leaves the app `Synced` and the new size in place;
 - changing a field that Git does own is reverted by self-heal.
 
+The same job bootstraps the root app at the commit under test and checks that it renders exactly the objects under `gitops/platform`, applies them, and waits for the ApplicationSet to create one `Synced` `runner-<tenant>` release per folder under `gitops/tenants` (the namespace and runner-token secret that Terraform provides on a real cluster are created by hand). The only departure from production is that the root app runs without its automated sync there, because the objects it manages are repointed at the commit under test and a self-healing root would reset them to `main`.
+
 ## Adding a tenant
 
 1. Add it to `tenants` in Terraform and apply (namespace, guardrails, IAM role).
