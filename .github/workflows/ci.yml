@@ -1,5 +1,8 @@
 name: ci
 
+# Every action is pinned to a commit; the comment after it names the release,
+# which Dependabot reads and keeps current together with the commit.
+
 on:
   push:
     branches: [main]
@@ -21,8 +24,8 @@ jobs:
     name: Go (vet, test, build)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: autoscaler/go.mod
           # No third-party modules, so there is no go.sum to key a cache on.
@@ -47,8 +50,8 @@ jobs:
     name: Go (govulncheck)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: autoscaler/go.mod
           cache: false
@@ -59,8 +62,8 @@ jobs:
     name: Terraform (fmt, validate)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: hashicorp/setup-terraform@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
         with:
           terraform_version: "~1.9"
       - run: terraform fmt -check -recursive terraform
@@ -79,8 +82,8 @@ jobs:
     name: Manifests, rules, dashboard
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: "1.27"
           cache: false
@@ -107,8 +110,8 @@ jobs:
       REPO_URL: ${{ github.event.pull_request.head.repo.clone_url || format('{0}/{1}.git', github.server_url, github.repository) }}
       REVISION: ${{ github.event.pull_request.head.sha || github.sha }}
     steps:
-      - uses: actions/checkout@v7
-      - uses: helm/kind-action@v1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: helm/kind-action@ef37e7f390d99f746eb8b610417061a60e82a6cc # v1.14.0
         with:
           cluster_name: gitops-e2e
       - name: Install Argo CD
@@ -262,8 +265,8 @@ jobs:
     name: Checkov (IaC security)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: bridgecrewio/checkov-action@v12
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: bridgecrewio/checkov-action@3f0caf0c3aa9f56ade6b49f6e60b63aaeafb75a3 # v12.3141.0
         with:
           directory: .
           framework: terraform,kubernetes,dockerfile,github_actions
@@ -277,9 +280,9 @@ jobs:
       contents: read
       packages: write
     steps:
-      - uses: actions/checkout@v7
-      - uses: docker/setup-buildx-action@v4
-      - uses: docker/login-action@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
         if: startsWith(github.ref, 'refs/tags/v')
         with:
           registry: ghcr.io
@@ -288,7 +291,7 @@ jobs:
       # Derive the tag from the event: "main" on a push, "v1.2.3" on a tag,
       # "pr-12" on a pull request. github.ref_name is "12/merge" on a pull
       # request, which is not a valid image tag and failed every PR build.
-      - uses: docker/metadata-action@v6
+      - uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         id: meta
         with:
           images: ghcr.io/${{ github.repository_owner }}/warmpool-autoscaler
@@ -296,7 +299,7 @@ jobs:
             type=ref,event=branch
             type=ref,event=tag
             type=ref,event=pr
-      - uses: docker/build-push-action@v7
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: autoscaler
           build-args: VERSION=${{ steps.meta.outputs.version }}
