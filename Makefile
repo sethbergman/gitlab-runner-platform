@@ -3,8 +3,14 @@
 help: ## Show targets
 	@grep -E '^[a-z-]+:.*##' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-12s %s\n", $$1, $$2}'
 
-test: ## go vet + race-checked unit tests
-	cd autoscaler && go vet ./... && go test -race ./...
+# Statement coverage `make test` requires. Raise it when tests land, never lower it quietly.
+COVERAGE_FLOOR ?= 70
+
+test: ## gofmt, go vet, race-checked unit tests, coverage floor
+	! gofmt -l autoscaler | grep .
+	cd autoscaler && go vet ./... && go test -race -covermode=atomic -coverprofile=coverage.out ./...
+	cd autoscaler && go tool cover -func=coverage.out | awk -v floor=$(COVERAGE_FLOOR) \
+		'/^total:/ { sub("%", "", $$NF); printf "coverage %s%% (floor %s%%)\n", $$NF, floor; exit !($$NF >= floor) }'
 
 demo: ## Run the autoscaler against a replayed queue, no cluster needed
 	cd autoscaler && go run ./cmd/warmpool-autoscaler \
