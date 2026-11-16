@@ -25,6 +25,8 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: autoscaler/go.mod
+          # No third-party modules, so there is no go.sum to key a cache on.
+          cache: false
       - name: gofmt
         run: test -z "$(gofmt -l . | tee /dev/stderr)"
       - run: go vet ./...
@@ -58,6 +60,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: "1.27"
+          cache: false
       - run: go install github.com/yannh/kubeconform/cmd/kubeconform@v0.6.7
       - name: kubeconform
         run: kubectl kustomize deploy/autoscaler | "$(go env GOPATH)/bin/kubeconform" -strict -summary -
