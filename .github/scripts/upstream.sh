@@ -2,7 +2,7 @@
 # Opens, or refreshes, one pull request per upstream pin that is behind its
 # latest release, then runs CI on it. Dependabot sees neither pin:
 #
-#   - the Argo CD the e2e job installs (ARGOCD_VERSION in ci.yml);
+#   - the Argo CD the e2e job installs (.github/e2e/argocd-version);
 #   - the gitlab-runner chart every tenant pins (gitops/tenants/*/config.json
 #     and terraform/examples/eks/terraform.tfvars.example).
 #
@@ -44,18 +44,18 @@ propose() { # branch title body file...
 }
 
 # Argo CD, as installed on kind by the gitops-e2e job.
-current=$(sed -n 's/^ *ARGOCD_VERSION: *//p' .github/workflows/ci.yml)
+current=$(cat .github/e2e/argocd-version)
 latest=$(curl -fsSL -H 'Accept: application/vnd.github+json' \
   https://api.github.com/repos/argoproj/argo-cd/releases/latest | jq -r .tag_name)
 echo "argo-cd: pinned ${current}, latest ${latest}"
 if newer "${current}" "${latest}"; then
-  sed -i "s/^\( *ARGOCD_VERSION: \).*/\1${latest}/" .github/workflows/ci.yml
+  echo "${latest}" > .github/e2e/argocd-version
   propose deps/argocd "Bump Argo CD to ${latest} in the e2e job" \
     "The gitops-e2e job installed Argo CD ${current}; ${latest} is the latest release: https://github.com/argoproj/argo-cd/releases/tag/${latest}
 
 Production Argo CD is not managed from this repository, so this only changes what the e2e test runs against. A green run here is the evidence that the manifests under gitops/ still behave on the new version.
 
-Opened by .github/workflows/upstream.yml." .github/workflows/ci.yml
+Opened by .github/workflows/upstream.yml." .github/e2e/argocd-version
 fi
 
 # gitlab-runner chart, as pinned by every tenant and the Terraform example.
