@@ -68,6 +68,67 @@ jobs:
       - name: dashboard is valid JSON
         run: jq empty observability/grafana/runner-platform.json
 
+  gitops-e2e:
+    name: GitOps on kind (Argo CD)
+    runs-on: ubuntu-latest
+    needs: [manifests]
+    env:
+      ARGOCD_VERSION: v3.5.0
+      # Point Argo CD at the commit under test, in whichever repo it lives.
+      REPO_URL: ${{ github.event.pull_request.head.repo.clone_url || format('{0}/{1}.git', github.server_url, github.repository) }}
+      REVISION: ${{ github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: helm/kind-action@v1
+        with:
+          cluster_name: gitops-e2e
+      - name: Install Argo CD
+        run: |
+          kubectl create namespace argocd
+          kubectl apply -n argocd --server-side --force-conflicts \
+            -f "https://raw.githubusercontent.com/argoproj/argo-cd/${ARGOCD_VERSION}/manifests/install.yaml"
+          kubectl -n argocd rollout status deploy/argocd-repo-server --timeout=300s
+          kubectl -n argocd rollout status statefulset/argocd-application-controller --timeout=300s
+      - name: Apply projects and the autoscaler app at this commit
+        run: |
+          retarget() {
+            sed -e "s#https://github.com/sethbergman/gitlab-runner-platform.git#${REPO_URL}#g" \
+                -e "s#targetRevision: main#targetRevision: ${REVISION}#g" "$1"
+          }
+          retarget gitops/platform/appproject.yaml | kubectl apply -f -
+          retarget gitops/platform/warmpool-autoscaler.yaml | kubectl apply -f -
+      - name: App syncs cleanly
+        run: |
+          kubectl -n argocd wait application/warmpool-autoscaler \
+            --for=jsonpath='{.status.sync.status}'=Synced --timeout=300s
+          kubectl -n gitlab-runner-system get deploy,role,rolebinding,networkpolicy
+      - name: Autoscaler-owned replicas are not treated as drift
+        run: |
+          # Act like the autoscaler, then force Argo CD to compare against Git.
+          kubectl -n gitlab-runner-system scale deploy/runner-warm-pool --replicas=3
+          kubectl -n argocd annotate application/warmpool-autoscaler \
+            argocd.argoproj.io/refresh=hard --overwrite
+          sleep 60
+          sync=$(kubectl -n argocd get application/warmpool-autoscaler -o jsonpath='{.status.sync.status}')
+          replicas=$(kubectl -n gitlab-runner-system get deploy/runner-warm-pool -o jsonpath='{.spec.replicas}')
+          echo "sync=${sync} replicas=${replicas}"
+          test "${sync}" = Synced
+          test "${replicas}" = 3
+      - name: Drift in a field Git owns is reverted
+        run: |
+          # Git sets terminationGracePeriodSeconds: 0; change it by hand.
+          kubectl -n gitlab-runner-system patch deploy/runner-warm-pool --type=json \
+            -p '[{"op":"replace","path":"/spec/template/spec/terminationGracePeriodSeconds","value":30}]'
+          for i in $(seq 1 36); do
+            v=$(kubectl -n gitlab-runner-system get deploy/runner-warm-pool -o jsonpath='{.spec.template.spec.terminationGracePeriodSeconds}')
+            [ "${v}" = 0 ] && { echo "self-heal reverted the change after ~$((i*5))s"; exit 0; }
+            sleep 5
+          done
+          echo "self-heal did not revert drift"; exit 1
+      - name: Argo CD state on failure
+        if: failure()
+        run: kubectl -n argocd get application warmpool-autoscaler -o yaml
+
   checkov:
     name: Checkov (IaC security)
     runs-on: ubuntu-latest

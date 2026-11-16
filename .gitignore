@@ -4,3 +4,4 @@
 terraform.tfvars
 coverage.out
 /autoscaler/warmpool-autoscaler
+.runner-values.json

@@ -34,3 +34,7 @@ Each tenant is a separate failure and security domain:
 ## Why the warm pool, rather than over-provisioning nodes
 
 Over-provisioning a node group with a fixed minimum keeps capacity around but cannot follow demand, and it costs the same at 3 a.m. as at 10 a.m. Scaling the node group directly from the queue would duplicate the cluster autoscaler's job and fight it. A pool of preemptible placeholders lets the cluster autoscaler keep doing what it is good at, while the queue decides how much spare capacity to ask it for. See [ADR 0002](decisions/0002-warm-pool-autoscaling.md).
+
+## Who deploys what
+
+Terraform creates AWS resources and tenant guardrails. In-cluster workloads are deployed either by Terraform's Helm releases or, in GitOps mode, by Argo CD from this repository. See [gitops.md](gitops.md) and [ADR 0004](decisions/0004-gitops-handoff.md).

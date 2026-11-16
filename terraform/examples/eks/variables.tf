@@ -19,3 +19,9 @@ variable "chart_version" {
   description = "gitlab-runner Helm chart version to pin (see `helm search repo gitlab/gitlab-runner --versions`)."
   type        = string
 }
+
+variable "use_gitops" {
+  description = "true: Argo CD installs the runners from gitops/tenants (Terraform keeps AWS and guardrails). false: Terraform installs them with Helm."
+  type        = bool
+  default     = false
+}

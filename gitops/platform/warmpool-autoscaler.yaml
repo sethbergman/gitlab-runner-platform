@@ -1,0 +1,33 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: warmpool-autoscaler
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: ci-system
+  source:
+    repoURL: https://github.com/sethbergman/gitlab-runner-platform.git
+    targetRevision: main
+    path: deploy/autoscaler
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: gitlab-runner-system
+  # The autoscaler owns the warm pool's size at runtime. Without this, Argo CD
+  # would see every resize as drift and self-heal would reset the pool to the
+  # replicas: 0 in Git, fighting the autoscaler every few seconds.
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      name: runner-warm-pool
+      namespace: gitlab-runner-system
+      jsonPointers:
+        - /spec/replicas
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      # Also leave the ignored field alone when a sync runs for other reasons.
+      - RespectIgnoreDifferences=true

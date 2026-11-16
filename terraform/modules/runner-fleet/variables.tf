@@ -108,3 +108,14 @@ variable "tags" {
   type        = map(string)
   default     = {}
 }
+
+variable "manage_runner_releases" {
+  description = <<-EOT
+    true: Terraform installs each tenant's runner with helm_release.
+    false: GitOps mode. Terraform still owns AWS and the tenant guardrails,
+    but Argo CD installs the runners from values committed to Git; get them
+    from the runner_helm_values output (see docs/gitops.md).
+  EOT
+  type        = bool
+  default     = true
+}

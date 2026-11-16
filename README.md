@@ -38,7 +38,7 @@ flowchart LR
   CA[cluster autoscaler / Karpenter] -- adds nodes for evicted placeholders --> EKS
 ```
 
-More detail: [docs/architecture.md](docs/architecture.md) · [autoscaling design](docs/autoscaling.md) · [SLOs](docs/slo.md) · [runbook](docs/runbook.md) · [decision records](docs/decisions/)
+More detail: [docs/architecture.md](docs/architecture.md) · [GitOps](docs/gitops.md) · [autoscaling design](docs/autoscaling.md) · [SLOs](docs/slo.md) · [runbook](docs/runbook.md) · [decision records](docs/decisions/)
 
 ## What's in the box
 
@@ -48,8 +48,9 @@ More detail: [docs/architecture.md](docs/architecture.md) · [autoscaling design
 | [`terraform/modules/runner-fleet/`](terraform/modules/runner-fleet/) | Per-tenant namespaces with Pod Security admission, ResourceQuota, LimitRange and NetworkPolicy (blocks the EC2 metadata endpoint); IRSA roles scoped to a cache prefix; encrypted, TLS-only, auto-expiring S3 cache; one Helm release per tenant with `atomic` upgrades. |
 | [`terraform/examples/eks/`](terraform/examples/eks/) | Two tenants on an existing EKS cluster, with short-lived `aws eks get-token` auth and a remote-state stub. |
 | [`deploy/autoscaler/`](deploy/autoscaler/) | Kustomize: restricted namespace, PriorityClass, warm pool, least-privilege RBAC (one Deployment's scale, nothing else), network policies, autoscaler Deployment. |
+| [`gitops/`](gitops/) | Argo CD app-of-apps: two AppProjects with enforced boundaries, the autoscaler app (ignoring the replica count it owns), and an ApplicationSet with one runner release per tenant. See [docs/gitops.md](docs/gitops.md). |
 | [`observability/`](observability/) | Prometheus alert rules with runbook links, and a Grafana dashboard. |
-| [`.github/workflows/ci.yml`](.github/workflows/ci.yml) | Go tests, Terraform fmt and validate, kubeconform, promtool, Checkov, image build. |
+| [`.github/workflows/ci.yml`](.github/workflows/ci.yml) | Go tests, Terraform fmt and validate, kubeconform, promtool, Checkov, image build, and an Argo CD end-to-end test on a kind cluster. |
 
 ## Try it locally
 
@@ -77,7 +78,7 @@ make validate   # terraform fmt/validate, kubeconform, promtool (needs the tools
 
 1. **Cluster prerequisites.** An EKS cluster with an IAM OIDC provider, a CI node group labeled `workload=ci` and tainted `dedicated=ci:NoSchedule`, the cluster autoscaler or Karpenter, and network policy enforcement turned on (VPC CNI network policy, Calico or Cilium).
 2. **Runner tokens.** Create a runner per tenant in GitLab (tags are set there), and sync its `glrt-` token into a Secret named `gitlab-runner-token` in `ci-<tenant>`, with keys `runner-token` and `runner-registration-token` (empty). Use your secret store; tokens never pass through Terraform state.
-3. **Fleet.** `cd terraform/examples/eks && cp terraform.tfvars.example terraform.tfvars && terraform init && terraform apply`.
+3. **Fleet.** `cd terraform/examples/eks && cp terraform.tfvars.example terraform.tfvars && terraform init && terraform apply`. To run the runners and autoscaler through Argo CD instead, set `use_gitops = true` and follow [docs/gitops.md](docs/gitops.md).
 4. **Autoscaler.** Put a `read_api` token in Secret `warmpool-gitlab-token` (key `token`) in `gitlab-runner-system`, set the projects and tags in `deploy/autoscaler/deployment.yaml`, then `kubectl apply -k deploy/autoscaler`.
 5. **Observability.** Load `observability/prometheus-rules.yaml` and import the Grafana dashboard.
 
@@ -91,8 +92,8 @@ make validate   # terraform fmt/validate, kubeconform, promtool (needs the tools
 
 ## Status and limits
 
-- **Checked on every push:** Go unit tests with the race detector, `terraform validate` on the module and example, schema checks of every manifest, `promtool` on the alert rules, and a Checkov scan (passing, with each skipped check justified inline).
-- **Not covered by automated tests:** a live `terraform apply` against AWS. The module is written to be applied, but treat the first apply in your account as the integration test.
+- **Checked on every push:** Go unit tests with the race detector, `terraform validate` on the module and example, schema checks of every manifest, `promtool` on the alert rules, a Checkov scan (passing, with each skipped check justified inline), and a GitOps test that syncs the autoscaler app with Argo CD on a kind cluster, then proves autoscaler resizes are not treated as drift while real drift is reverted.
+- **Not covered by automated tests:** a live `terraform apply` against AWS, and the tenant runner releases (they need a GitLab instance and runner tokens). The module is written to be applied, but treat the first apply in your account as the integration test.
 - **Docker-in-Docker is intentionally not supported**, because it requires privileged pods. Build images with BuildKit rootless or Kaniko instead.
 
 ## License

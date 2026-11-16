@@ -83,6 +83,8 @@ module "runner_fleet" {
   oidc_provider_arn = data.aws_iam_openid_connect_provider.this.arn
   oidc_provider_url = data.aws_eks_cluster.this.identity[0].oidc[0].issuer
 
+  manage_runner_releases = !var.use_gitops
+
   tenants = {
     payments = {
       runner_token_secret = "gitlab-runner-token"

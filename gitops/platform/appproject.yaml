@@ -1,0 +1,49 @@
+# Two projects, two trust levels.
+#
+# ci-system: platform components the platform team owns outright
+# (the warm pool and its autoscaler, including their network policies).
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: ci-system
+  namespace: argocd
+spec:
+  description: Warm pool and autoscaler for the GitLab Runner platform
+  sourceRepos:
+    - https://github.com/sethbergman/gitlab-runner-platform.git
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: gitlab-runner-system
+  # Cluster-scoped kinds this project may own. Everything else cluster-wide
+  # (CRDs, ClusterRoles, webhooks) is refused.
+  clusterResourceWhitelist:
+    - group: ""
+      kind: Namespace
+    - group: scheduling.k8s.io
+      kind: PriorityClass
+  orphanedResources:
+    warn: true
+---
+# ci-tenants: one runner release per tenant namespace. Terraform owns each
+# namespace's guardrails, so Argo CD may not create, change or prune them.
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: ci-tenants
+  namespace: argocd
+spec:
+  description: Per-tenant GitLab Runner releases
+  sourceRepos:
+    - https://github.com/sethbergman/gitlab-runner-platform.git
+    - https://charts.gitlab.io
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: "ci-*"
+  clusterResourceWhitelist: []
+  namespaceResourceBlacklist:
+    - group: ""
+      kind: ResourceQuota
+    - group: ""
+      kind: LimitRange
+    - group: networking.k8s.io
+      kind: NetworkPolicy

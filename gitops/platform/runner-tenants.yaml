@@ -1,0 +1,45 @@
+# One Application per tenant, generated from gitops/tenants/<tenant>/.
+# Adding a tenant is two files in a pull request (after Terraform has created
+# its namespace, IAM role and guardrails).
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: runner-tenants
+  namespace: argocd
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - git:
+        repoURL: https://github.com/sethbergman/gitlab-runner-platform.git
+        revision: main
+        files:
+          - path: gitops/tenants/*/config.json
+  template:
+    metadata:
+      name: "runner-{{.tenant}}"
+      labels:
+        platform.ci/tenant: "{{.tenant}}"
+    spec:
+      project: ci-tenants
+      sources:
+        - repoURL: https://charts.gitlab.io
+          chart: gitlab-runner
+          targetRevision: "{{.chartVersion}}"
+          helm:
+            releaseName: gitlab-runner
+            valueFiles:
+              - "$values/gitops/tenants/{{.tenant}}/values.yaml"
+        - repoURL: https://github.com/sethbergman/gitlab-runner-platform.git
+          targetRevision: main
+          ref: values
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: "ci-{{.tenant}}"
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          # Terraform creates the namespace together with its guardrails.
+          - CreateNamespace=false
