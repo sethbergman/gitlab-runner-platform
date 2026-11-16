@@ -92,7 +92,7 @@ make validate   # terraform fmt/validate, kubeconform, promtool (needs the tools
 
 ## Status and limits
 
-- **Checked on every push:** Go unit tests with the race detector, `terraform validate` on the module and example, schema checks of every manifest including the Argo CD objects under `gitops/`, `promtool` on the alert rules, a Checkov scan (passing, with each skipped check justified inline), and a GitOps test on a kind cluster where Argo CD renders the root app, syncs the autoscaler app and creates one synced runner release per tenant from the ApplicationSet, then proves autoscaler resizes are not treated as drift while real drift is reverted.
+- **Checked on every push:** Go unit tests with the race detector, `terraform validate` on the module and example, schema checks of every manifest including the Argo CD objects under `gitops/`, `promtool` on the alert rules, a Checkov scan (passing, with each skipped check justified inline), and a GitOps test on a kind cluster where Argo CD renders the root app, syncs the autoscaler app and creates one synced runner release per tenant from the ApplicationSet, refuses a tenant app that ships guardrail objects or targets a foreign namespace, then proves autoscaler resizes are not treated as drift while real drift is reverted.
 - **Not covered by automated tests:** a live `terraform apply` against AWS, and the tenant runner releases (they need a GitLab instance and runner tokens). The module is written to be applied, but treat the first apply in your account as the integration test.
 - **Docker-in-Docker is intentionally not supported**, because it requires privileged pods. Build images with BuildKit rootless or Kaniko instead.
 
