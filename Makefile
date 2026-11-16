@@ -26,8 +26,14 @@ tf-validate:
 		terraform -chdir=$$d init -backend=false -input=false >/dev/null && terraform -chdir=$$d validate; \
 	done
 
+# Argo CD CRD schemas for kubeconform, from the datree CRDs catalog pinned to
+# a commit so the check is reproducible. Bump deliberately.
+CRDS_CATALOG_REV ?= 3e8a8916ca1b7af6464606c2c2f5869dbafa9653
+CRDS_CATALOG = https://raw.githubusercontent.com/datreeio/CRDs-catalog/$(CRDS_CATALOG_REV)/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json
+
 manifests:
 	kubectl kustomize deploy/autoscaler | kubeconform -strict -summary -
+	kubeconform -strict -summary -schema-location default -schema-location '$(CRDS_CATALOG)' gitops/bootstrap gitops/platform
 
 rules:
 	promtool check rules observability/prometheus-rules.yaml
