@@ -154,6 +154,56 @@ jobs:
           kubectl -n argocd get applications -l platform.ci/tenant \
             -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' | sort > "$RUNNER_TEMP/tenant-apps"
           ls gitops/tenants | sed 's#^#runner-#' | sort | diff - "$RUNNER_TEMP/tenant-apps"
+      - name: Project ci-tenants refuses guardrail objects and foreign namespaces
+        run: |
+          # Two apps a tenant must not get away with: one ships a ResourceQuota,
+          # LimitRange and NetworkPolicy into its own namespace, the other
+          # targets a namespace outside ci-*.
+          tenant_app() {
+            kubectl apply -f - <<EOF
+          apiVersion: argoproj.io/v1alpha1
+          kind: Application
+          metadata:
+            name: $1
+            namespace: argocd
+          spec:
+            project: ci-tenants
+            source:
+              repoURL: ${REPO_URL}
+              targetRevision: ${REVISION}
+              path: .github/e2e/tenant-escape
+            destination:
+              server: https://kubernetes.default.svc
+              namespace: $2
+            syncPolicy:
+              automated: {}
+          EOF
+          }
+          tenant_app tenant-escape ci-payments
+          tenant_app tenant-foreign gitlab-runner-system
+          # Wait until Argo CD has judged both, then show its verdicts.
+          verdict() { kubectl -n argocd get "application/$1" -o jsonpath='{.status}'; }
+          for i in $(seq 1 36); do
+            verdict tenant-escape | grep -q 'not permitted in project ci-tenants' \
+              && verdict tenant-foreign | grep -q -i 'destination' && break
+            sleep 5
+          done
+          for app in tenant-escape tenant-foreign; do
+            echo "== ${app}"
+            kubectl -n argocd get "application/${app}" \
+              -o jsonpath='sync={.status.sync.status}{"\n"}{range .status.conditions[*]}{.type}: {.message}{"\n"}{end}{.status.operationState.message}{"\n"}'
+            test "$(kubectl -n argocd get "application/${app}" -o jsonpath='{.status.sync.status}')" != Synced
+          done
+          verdict tenant-escape | grep -q 'not permitted in project ci-tenants'
+          verdict tenant-foreign | grep -q -i 'destination'
+          for ns in ci-payments gitlab-runner-system; do
+            for kind in resourcequota limitrange networkpolicy; do
+              if kubectl -n "${ns}" get "${kind}" tenant-escape 2>/dev/null; then
+                echo "${kind}/tenant-escape reached ${ns}"; exit 1
+              fi
+            done
+          done
+          kubectl -n argocd delete application tenant-escape tenant-foreign
       - name: Autoscaler-owned replicas are not treated as drift
         run: |
           # Act like the autoscaler, then force Argo CD to compare against Git.

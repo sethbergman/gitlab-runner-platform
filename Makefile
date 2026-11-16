@@ -33,7 +33,7 @@ CRDS_CATALOG = https://raw.githubusercontent.com/datreeio/CRDs-catalog/$(CRDS_CA
 
 manifests:
 	kubectl kustomize deploy/autoscaler | kubeconform -strict -summary -
-	kubeconform -strict -summary -schema-location default -schema-location '$(CRDS_CATALOG)' gitops/bootstrap gitops/platform
+	kubeconform -strict -summary -schema-location default -schema-location '$(CRDS_CATALOG)' gitops/bootstrap gitops/platform .github/e2e
 
 rules:
 	promtool check rules observability/prometheus-rules.yaml
