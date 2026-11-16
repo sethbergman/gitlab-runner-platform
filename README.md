@@ -50,7 +50,7 @@ More detail: [docs/architecture.md](docs/architecture.md) · [GitOps](docs/gitop
 | [`deploy/autoscaler/`](deploy/autoscaler/) | Kustomize: restricted namespace, PriorityClass, warm pool, least-privilege RBAC (one Deployment's scale, nothing else), network policies, autoscaler Deployment. |
 | [`gitops/`](gitops/) | Argo CD app-of-apps: two AppProjects with enforced boundaries, the autoscaler app (ignoring the replica count it owns), and an ApplicationSet with one runner release per tenant. See [docs/gitops.md](docs/gitops.md). |
 | [`observability/`](observability/) | Prometheus alert rules with runbook links, and a Grafana dashboard. |
-| [`.github/workflows/ci.yml`](.github/workflows/ci.yml) | Go tests, Terraform fmt and validate, kubeconform, promtool, Checkov, image build, and an Argo CD end-to-end test on a kind cluster. |
+| [`.github/workflows/ci.yml`](.github/workflows/ci.yml) | Go tests with a coverage floor, govulncheck, Terraform fmt and validate, kubeconform, promtool on the rules and on the autoscaler's live `/metrics`, Checkov, image build, and an Argo CD end-to-end test on a kind cluster. |
 
 ## Try it locally
 
@@ -92,7 +92,7 @@ make validate   # terraform fmt/validate, kubeconform, promtool (needs the tools
 
 ## Status and limits
 
-- **Checked on every push:** Go unit tests with the race detector, `terraform validate` on the module and example, schema checks of every manifest including the Argo CD objects under `gitops/`, `promtool` on the alert rules, a Checkov scan (passing, with each skipped check justified inline), and a GitOps test on a kind cluster where Argo CD renders the root app, syncs the autoscaler app and creates one synced runner release per tenant from the ApplicationSet, refuses a tenant app that ships guardrail objects or targets a foreign namespace, then proves autoscaler resizes are not treated as drift while real drift is reverted.
+- **Checked on every push:** Go unit tests with the race detector behind a statement-coverage floor, `govulncheck` against the Go vulnerability database, a dry run of the built binary whose `/metrics` page must pass `promtool check metrics`, `terraform validate` on the module and example, schema checks of every manifest including the Argo CD objects under `gitops/`, `promtool` on the alert rules, a Checkov scan (passing, with each skipped check justified inline), and a GitOps test on a kind cluster where Argo CD renders the root app, syncs the autoscaler app and creates one synced runner release per tenant from the ApplicationSet, refuses a tenant app that ships guardrail objects or targets a foreign namespace, then proves autoscaler resizes are not treated as drift while real drift is reverted.
 - **Not covered by automated tests:** a live `terraform apply` against AWS, and the tenant runner releases (they need a GitLab instance and runner tokens). The module is written to be applied, but treat the first apply in your account as the integration test.
 - **Docker-in-Docker is intentionally not supported**, because it requires privileged pods. Build images with BuildKit rootless or Kaniko instead.
 

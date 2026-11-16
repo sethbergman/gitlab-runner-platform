@@ -176,7 +176,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "warmpool_business_hours",
+          "expr": "warmpool_business_schedule_active",
           "refId": "A"
         }
       ]

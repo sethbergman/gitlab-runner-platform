@@ -12,17 +12,17 @@ import (
 
 // Recorder holds the latest values. All methods are safe for concurrent use.
 type Recorder struct {
-	mu              sync.Mutex
-	pending         int
-	desired         int
-	current         int
-	businessHours   bool
-	reconciles      uint64
-	errors          map[string]uint64 // by stage: queue, scale_get, scale_set
-	scaleEvents     map[string]uint64 // by direction: up, down
-	lastSuccess     time.Time
-	lastReconcileMS float64
-	max             int
+	mu            sync.Mutex
+	pending       int
+	desired       int
+	current       int
+	businessHours bool
+	reconciles    uint64
+	errors        map[string]uint64 // by stage: queue, scale_get, scale_set
+	scaleEvents   map[string]uint64 // by direction: up, down
+	lastSuccess   time.Time
+	lastReconcile time.Duration
+	max           int
 }
 
 // New returns an empty Recorder.
@@ -37,7 +37,7 @@ func (r *Recorder) Observe(pending, desired, current int, business bool, took ti
 	r.pending, r.desired, r.current, r.businessHours = pending, desired, current, business
 	r.reconciles++
 	r.lastSuccess = at
-	r.lastReconcileMS = float64(took) / float64(time.Millisecond)
+	r.lastReconcile = took
 }
 
 // SetMax records the configured ceiling so alerts can tell when the pool is
@@ -85,8 +85,8 @@ func (r *Recorder) Write(w io.Writer) {
 	gauge("warmpool_desired_replicas", "Warm-pool size after policy and scale-down stabilization.", float64(r.desired))
 	gauge("warmpool_current_replicas", "Warm-pool size last read from the Deployment.", float64(r.current))
 	gauge("warmpool_max_replicas", "Configured warm-pool ceiling.", float64(r.max))
-	gauge("warmpool_business_hours", "1 inside the configured business-hours schedule, else 0.", b2f(r.businessHours))
-	gauge("warmpool_reconcile_duration_milliseconds", "Duration of the last successful reconcile.", r.lastReconcileMS)
+	gauge("warmpool_business_schedule_active", "1 inside the configured business-hours schedule, else 0.", b2f(r.businessHours))
+	gauge("warmpool_reconcile_duration_seconds", "Duration of the last successful reconcile.", r.lastReconcile.Seconds())
 	if !r.lastSuccess.IsZero() {
 		gauge("warmpool_last_success_timestamp_seconds", "Unix time of the last successful reconcile.",
 			float64(r.lastSuccess.UnixNano())/1e9)

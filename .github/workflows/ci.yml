@@ -13,13 +13,13 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  PROMETHEUS_VERSION: v2.54.1
+
 jobs:
   go:
     name: Go (vet, test, build)
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: autoscaler
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
@@ -27,12 +27,33 @@ jobs:
           go-version-file: autoscaler/go.mod
           # No third-party modules, so there is no go.sum to key a cache on.
           cache: false
-      - name: gofmt
-        run: test -z "$(gofmt -l . | tee /dev/stderr)"
-      - run: go vet ./...
-      - run: go test -race -covermode=atomic -coverprofile=coverage.out ./...
-      - run: go tool cover -func=coverage.out | tail -1
-      - run: CGO_ENABLED=0 go build -trimpath -o /dev/null ./cmd/warmpool-autoscaler
+      - name: gofmt, go vet, race-checked tests, coverage floor
+        run: make test
+      - name: build
+        run: CGO_ENABLED=0 go build -trimpath -o "$RUNNER_TEMP/warmpool-autoscaler" ./cmd/warmpool-autoscaler
+        working-directory: autoscaler
+      - name: Binary serves valid metrics (dry run, static queue)
+        run: |
+          "$RUNNER_TEMP/warmpool-autoscaler" --dry-run --source=static --interval=1s --listen=127.0.0.1:18080 &
+          pid=$!
+          sleep 3
+          curl -fsS http://127.0.0.1:18080/healthz
+          curl -fsS http://127.0.0.1:18080/readyz
+          curl -fsS http://127.0.0.1:18080/metrics | tee "$RUNNER_TEMP/metrics.txt"
+          kill "${pid}"
+          docker run --rm -i --entrypoint promtool "prom/prometheus:${PROMETHEUS_VERSION}" check metrics < "$RUNNER_TEMP/metrics.txt"
+
+  govulncheck:
+    name: Go (govulncheck)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: autoscaler/go.mod
+          cache: false
+      - run: go install golang.org/x/vuln/cmd/govulncheck@latest
+      - run: govulncheck -C autoscaler ./...
 
   terraform:
     name: Terraform (fmt, validate)
@@ -68,7 +89,7 @@ jobs:
       - name: promtool
         run: |
           docker run --rm -v "$PWD/observability:/rules:ro" --entrypoint promtool \
-            prom/prometheus:v2.54.1 check rules /rules/prometheus-rules.yaml
+            "prom/prometheus:${PROMETHEUS_VERSION}" check rules /rules/prometheus-rules.yaml
       - name: dashboard is valid JSON
         run: jq empty observability/grafana/runner-platform.json
 
