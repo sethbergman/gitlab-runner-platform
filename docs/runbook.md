@@ -53,6 +53,13 @@ Common causes: the runner token was rotated in GitLab but not in the Secret; job
 
 ## Upgrading the runner chart
 
-1. Bump `chart_version` for one tenant first (split the tenants map, or apply to a canary cluster).
-2. `terraform apply`. Releases are `atomic`, so a failed upgrade rolls back on its own.
-3. Watch that tenant's job success rate for a day, then roll to the rest.
+The chart version is pinned in one place: `chart_version` in `terraform.tfvars`. In GitOps mode, `make gitops-values` copies it into every `gitops/tenants/<tenant>/config.json`, and CI fails a pull request whose `config.json` disagrees with what the example renders, so the two cannot drift.
+
+[`upstream.yml`](../.github/workflows/upstream.yml) opens a `deps/gitlab-runner-chart` pull request every Monday when a newer chart exists, with every tenant's `config.json` and `terraform.tfvars.example` already bumped and CI run on it: each tenant rendered with the new chart through kubeconform, and one synced release per tenant on a kind cluster. CI cannot run jobs, so the checks that matter are yours:
+
+1. Read the chart's release notes and confirm the bundled runner matches your GitLab version; runner and GitLab move together.
+2. Set the same version in your `terraform.tfvars`. Otherwise the next `make gitops-values` writes the old version back.
+3. Roll it out:
+   - **Terraform-installed runners.** Apply the new version to a canary first: a second `runner_fleet` module call holding one tenant, or a canary cluster. Releases are `atomic`, so a failed upgrade rolls back on its own.
+   - **Argo CD-installed runners.** Merge the pull request; Argo CD upgrades every tenant on its next sync. There is no per-tenant canary on this path, since every `config.json` carries the same generated version, so use a canary cluster bootstrapped from the branch if you need one. Argo CD applies rendered manifests rather than running `helm upgrade`, so nothing rolls back on its own: a bad upgrade leaves `runner-<tenant>` Degraded, and reverting the merge is the rollback.
+4. Watch the upgraded tenant's job success rate for a day, then roll to the rest.
