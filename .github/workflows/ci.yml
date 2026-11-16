@@ -48,6 +48,15 @@ jobs:
           curl -fsS http://127.0.0.1:18080/metrics | tee "$RUNNER_TEMP/metrics.txt"
           kill "${pid}"
           docker run --rm -i --entrypoint promtool "prom/prometheus:$(cat .github/versions/prometheus)" check metrics < "$RUNNER_TEMP/metrics.txt"
+      - name: Rules and dashboard name only metrics the binary exports
+        run: |
+          exported=$(grep -oE '^warmpool_[a-z_]+' "$RUNNER_TEMP/metrics.txt" | sort -u)
+          used=$(grep -ohE 'warmpool_[a-z_]+' observability/prometheus-rules.yaml observability/grafana/runner-platform.json | sort -u)
+          missing=$(comm -13 <(echo "$exported") <(echo "$used"))
+          if [ -n "$missing" ]; then
+            echo "named in observability/ but not exported by the binary:"; echo "$missing"; exit 1
+          fi
+          echo "$used"
 
   govulncheck:
     name: Go (govulncheck)
@@ -98,10 +107,12 @@ jobs:
         run: make manifests
       - name: each tenant's values render with its pinned chart
         run: make tenants
-      - name: promtool
+      - name: promtool checks the rules and runs their unit tests
         run: |
           docker run --rm -v "$PWD/observability:/rules:ro" --entrypoint promtool \
             "prom/prometheus:$(cat .github/versions/prometheus)" check rules /rules/prometheus-rules.yaml
+          docker run --rm -v "$PWD/observability:/rules:ro" --entrypoint promtool \
+            "prom/prometheus:$(cat .github/versions/prometheus)" test rules /rules/prometheus-rules.test.yaml
       - name: dashboard is valid JSON
         run: jq empty observability/grafana/runner-platform.json
 

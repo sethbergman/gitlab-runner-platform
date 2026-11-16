@@ -58,6 +58,7 @@ tenants:
 
 rules:
 	promtool check rules observability/prometheus-rules.yaml
+	promtool test rules observability/prometheus-rules.test.yaml
 
 CHART_VERSION ?= $(shell terraform -chdir=terraform/examples/eks output -raw chart_version 2>/dev/null || echo 0.71.0)
 

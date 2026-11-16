@@ -1,0 +1,195 @@
+# Unit tests for prometheus-rules.yaml: `promtool test rules` (make rules).
+# Time starts at 0, so at a 1m interval a timestamp gauge with values
+# "0+60x..." is always current and a constant one is stuck. Each test lists
+# the alerts that must stay silent as well as the ones that must fire.
+rule_files:
+  - prometheus-rules.yaml
+
+evaluation_interval: 1m
+
+tests:
+  - name: a reconciling autoscaler with a small queue raises nothing
+    interval: 1m
+    input_series:
+      - series: warmpool_last_success_timestamp_seconds
+        values: 0+60x480
+      - series: warmpool_reconciles_total
+        values: 0+1x480
+      - series: warmpool_desired_replicas
+        values: 4x480
+      - series: warmpool_max_replicas
+        values: 30x480
+      - series: warmpool_pending_jobs
+        values: 4x480
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: WarmPoolAutoscalerStale
+      - eval_time: 15m
+        alertname: WarmPoolAutoscalerAbsent
+      - eval_time: 40m
+        alertname: WarmPoolPinnedAtMax
+      - eval_time: 7h
+        alertname: WarmPoolFreshnessBudgetBurn
+    promql_expr_test:
+      - expr: warmpool:fresh_minute:bool
+        eval_time: 15m
+        exp_samples:
+          - labels: warmpool:fresh_minute:bool
+            value: 1
+      - expr: avg_over_time(warmpool:fresh_minute:bool[6h])
+        eval_time: 7h
+        exp_samples:
+          - labels: "{}"
+            value: 1
+
+  - name: a stuck autoscaler is stale five minutes after crossing the threshold
+    interval: 1m
+    input_series:
+      - series: warmpool_last_success_timestamp_seconds
+        values: 0x30
+      - series: warmpool_reconciles_total
+        values: 7x30
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: WarmPoolAutoscalerStale
+      - eval_time: 12m
+        alertname: WarmPoolAutoscalerStale
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: Warm-pool autoscaler has not reconciled for over 5 minutes
+              description: >-
+                The pool is holding its last size. Check GitLab API reachability and
+                the token (warmpool_errors_total{stage="queue"}) and RBAC
+                (stage="scale_get" or "scale_set").
+              runbook: docs/runbook.md#autoscaler-stale
+      - eval_time: 12m
+        alertname: WarmPoolAutoscalerAbsent
+    promql_expr_test:
+      - expr: warmpool:fresh_minute:bool
+        eval_time: 12m
+        exp_samples:
+          - labels: warmpool:fresh_minute:bool
+            value: 0
+
+  - name: no scrape at all is reported after ten minutes
+    interval: 1m
+    alert_rule_test:
+      - eval_time: 9m
+        alertname: WarmPoolAutoscalerAbsent
+      - eval_time: 11m
+        alertname: WarmPoolAutoscalerAbsent
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: No warm-pool autoscaler metrics are being scraped
+              runbook: docs/runbook.md#autoscaler-stale
+
+  - name: a queue above the ceiling for half an hour is reported
+    interval: 1m
+    input_series:
+      - series: warmpool_desired_replicas
+        values: 30x60
+      - series: warmpool_max_replicas
+        values: 30x60
+      - series: warmpool_pending_jobs
+        values: 50x60
+    alert_rule_test:
+      - eval_time: 29m
+        alertname: WarmPoolPinnedAtMax
+      - eval_time: 31m
+        alertname: WarmPoolPinnedAtMax
+        exp_alerts:
+          - exp_labels:
+              severity: info
+            exp_annotations:
+              summary: Queue has exceeded the warm-pool ceiling for 30 minutes
+              description: >-
+                Jobs are waiting for new nodes. Either demand grew (raise
+                MAX_REPLICAS and the CI node group's max size) or a pipeline is
+                fanning out unexpectedly.
+              runbook: docs/runbook.md#pool-pinned-at-max
+
+  - name: a pool at its ceiling with the queue inside it is not reported
+    interval: 1m
+    input_series:
+      - series: warmpool_desired_replicas
+        values: 30x60
+      - series: warmpool_max_replicas
+        values: 30x60
+      - series: warmpool_pending_jobs
+        values: 30x60
+    alert_rule_test:
+      - eval_time: 40m
+        alertname: WarmPoolPinnedAtMax
+
+  - name: intermittent reconcile failures burn the budget without going stale
+    interval: 1m
+    input_series:
+      # Twenty current minutes, then three stuck ones, twenty times over:
+      # 13% bad minutes, never more than three in a row.
+      - series: warmpool_last_success_timestamp_seconds
+        values: 0 60 120 180 240 300 360 420 480 540 600 660 720 780 840 900 960 1020 1080 1140 1140 1140 1140 1380 1440 1500 1560 1620 1680 1740 1800 1860 1920 1980 2040 2100 2160 2220 2280 2340 2400 2460 2520 2520 2520 2520 2760 2820 2880 2940 3000 3060 3120 3180 3240 3300 3360 3420 3480 3540 3600 3660 3720 3780 3840 3900 3900 3900 3900 4140 4200 4260 4320 4380 4440 4500 4560 4620 4680 4740 4800 4860 4920 4980 5040 5100 5160 5220 5280 5280 5280 5280 5520 5580 5640 5700 5760 5820 5880 5940 6000 6060 6120 6180 6240 6300 6360 6420 6480 6540 6600 6660 6660 6660 6660 6900 6960 7020 7080 7140 7200 7260 7320 7380 7440 7500 7560 7620 7680 7740 7800 7860 7920 7980 8040 8040 8040 8040 8280 8340 8400 8460 8520 8580 8640 8700 8760 8820 8880 8940 9000 9060 9120 9180 9240 9300 9360 9420 9420 9420 9420 9660 9720 9780 9840 9900 9960 10020 10080 10140 10200 10260 10320 10380 10440 10500 10560 10620 10680 10740 10800 10800 10800 10800 11040 11100 11160 11220 11280 11340 11400 11460 11520 11580 11640 11700 11760 11820 11880 11940 12000 12060 12120 12180 12180 12180 12180 12420 12480 12540 12600 12660 12720 12780 12840 12900 12960 13020 13080 13140 13200 13260 13320 13380 13440 13500 13560 13560 13560 13560 13800 13860 13920 13980 14040 14100 14160 14220 14280 14340 14400 14460 14520 14580 14640 14700 14760 14820 14880 14940 14940 14940 14940 15180 15240 15300 15360 15420 15480 15540 15600 15660 15720 15780 15840 15900 15960 16020 16080 16140 16200 16260 16320 16320 16320 16320 16560 16620 16680 16740 16800 16860 16920 16980 17040 17100 17160 17220 17280 17340 17400 17460 17520 17580 17640 17700 17700 17700 17700 17940 18000 18060 18120 18180 18240 18300 18360 18420 18480 18540 18600 18660 18720 18780 18840 18900 18960 19020 19080 19080 19080 19080 19320 19380 19440 19500 19560 19620 19680 19740 19800 19860 19920 19980 20040 20100 20160 20220 20280 20340 20400 20460 20460 20460 20460 20700 20760 20820 20880 20940 21000 21060 21120 21180 21240 21300 21360 21420 21480 21540 21600 21660 21720 21780 21840 21840 21840 21840 22080 22140 22200 22260 22320 22380 22440 22500 22560 22620 22680 22740 22800 22860 22920 22980 23040 23100 23160 23220 23220 23220 23220 23460 23520 23580 23640 23700 23760 23820 23880 23940 24000 24060 24120 24180 24240 24300 24360 24420 24480 24540 24600 24600 24600 24600 24840 24900 24960 25020 25080 25140 25200 25260 25320 25380 25440 25500 25560 25620 25680 25740 25800 25860 25920 25980 25980 25980 25980 26220 26280 26340 26400 26460 26520 26580 26640 26700 26760 26820 26880 26940 27000 27060 27120 27180 27240 27300 27360 27360 27360 27360
+      - series: warmpool_reconciles_total
+        values: 0+1x460
+    alert_rule_test:
+      - eval_time: 7h
+        alertname: WarmPoolAutoscalerStale
+      - eval_time: 7h
+        alertname: WarmPoolAutoscalerAbsent
+      - eval_time: 7h
+        alertname: WarmPoolFreshnessBudgetBurn
+        exp_alerts:
+          - exp_labels:
+              severity: info
+            exp_annotations:
+              summary: Autoscaler freshness is burning its 28-day error budget
+              description: More than 3% of the minutes in the last 6 hours, and in the last 30 minutes, had no successful reconcile within 60 s. Look for intermittent GitLab or API-server failures in warmpool_errors_total.
+              runbook: docs/runbook.md#autoscaler-stale
+
+  - name: a runner manager near its concurrency limit is reported per namespace
+    interval: 1m
+    input_series:
+      - series: gitlab_runner_jobs{namespace="ci-payments",runner="a1b2c3"}
+        values: 19x30
+      - series: gitlab_runner_concurrent{namespace="ci-payments",runner="a1b2c3"}
+        values: 20x30
+      - series: gitlab_runner_jobs{namespace="ci-platform",runner="d4e5f6"}
+        values: 10x30
+      - series: gitlab_runner_concurrent{namespace="ci-platform",runner="d4e5f6"}
+        values: 20x30
+    alert_rule_test:
+      - eval_time: 14m
+        alertname: GitLabRunnerAtConcurrencyLimit
+      - eval_time: 16m
+        alertname: GitLabRunnerAtConcurrencyLimit
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              namespace: ci-payments
+            exp_annotations:
+              summary: Runner manager in ci-payments is above 90% of its concurrency limit
+              description: Jobs will queue in GitLab even if nodes are free. Raise the tenant's `concurrent` (and its quota) in Terraform.
+              runbook: docs/runbook.md#runner-at-concurrency-limit
+
+  - name: a runner manager logging errors is reported, one logging warnings is not
+    interval: 1m
+    input_series:
+      - series: gitlab_runner_errors_total{namespace="ci-payments",level="error"}
+        values: 0+2x30
+      - series: gitlab_runner_errors_total{namespace="ci-platform",level="warning"}
+        values: 0+5x30
+      - series: gitlab_runner_errors_total{namespace="ci-platform",level="error"}
+        values: 0x30
+    alert_rule_test:
+      - eval_time: 25m
+        alertname: GitLabRunnerErrors
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              namespace: ci-payments
+            exp_annotations:
+              summary: Runner manager in ci-payments is logging errors
+              runbook: docs/runbook.md#runner-errors
