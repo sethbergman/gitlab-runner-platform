@@ -1,0 +1,29 @@
+name: upstream
+
+# Dependabot cannot see the Argo CD version the e2e job installs or the
+# gitlab-runner chart the tenants pin. Once a week this compares both with
+# their latest release and opens, or refreshes, one pull request per pin that
+# is behind, with CI dispatched on it. See .github/scripts/upstream.sh.
+
+on:
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: write
+
+jobs:
+  bumps:
+    name: Argo CD and gitlab-runner chart
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+      - run: .github/scripts/upstream.sh
+        env:
+          GH_TOKEN: ${{ github.token }}
