@@ -63,3 +63,19 @@ The chart version is pinned in one place: `chart_version` in `terraform.tfvars`.
    - **Terraform-installed runners.** Apply the new version to a canary first: a second `runner_fleet` module call holding one tenant, or a canary cluster. Releases are `atomic`, so a failed upgrade rolls back on its own.
    - **Argo CD-installed runners.** Merge the pull request; Argo CD upgrades every tenant on its next sync. There is no per-tenant canary on this path, since every `config.json` carries the same generated version, so use a canary cluster bootstrapped from the branch if you need one. Argo CD applies rendered manifests rather than running `helm upgrade`, so nothing rolls back on its own: a bad upgrade leaves `runner-<tenant>` Degraded, and reverting the merge is the rollback.
 4. Watch the upgraded tenant's job success rate for a day, then roll to the rest.
+
+## Releasing the autoscaler
+
+A release is a tag on `main`:
+
+```bash
+git tag -a v0.2.0 -m "v0.2.0" && git push origin v0.2.0
+```
+
+CI builds and pushes `ghcr.io/sethbergman/warmpool-autoscaler:v0.2.0` for linux/amd64 and linux/arm64 with a BuildKit SBOM and provenance on the image index, signs a build-provenance attestation for it through Sigstore, and, once every other job is green, creates the GitHub Release with the image digest and the verify commands in its notes. A tag with a hyphen (`v0.2.0-rc.1`) becomes a prerelease.
+
+Then roll it out: verify the attestation, pin the digest in `deploy/autoscaler/deployment.yaml` and open a pull request. The GitOps e2e proves the pinned image boots before the pull request merges.
+
+```bash
+gh attestation verify oci://ghcr.io/sethbergman/warmpool-autoscaler:v0.2.0 --owner sethbergman
+```
