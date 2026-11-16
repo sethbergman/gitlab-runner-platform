@@ -19,9 +19,9 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
-env:
-  PROMETHEUS_VERSION: v2.54.1
-
+# The tools CI installs (Argo CD, kubeconform, Prometheus for promtool,
+# Terraform) are pinned in files under .github/versions/, not here: upstream.yml
+# bumps them weekly, and a workflow token may not edit a workflow.
 jobs:
   go:
     name: Go (vet, test, build)
@@ -47,7 +47,7 @@ jobs:
           curl -fsS http://127.0.0.1:18080/readyz
           curl -fsS http://127.0.0.1:18080/metrics | tee "$RUNNER_TEMP/metrics.txt"
           kill "${pid}"
-          docker run --rm -i --entrypoint promtool "prom/prometheus:${PROMETHEUS_VERSION}" check metrics < "$RUNNER_TEMP/metrics.txt"
+          docker run --rm -i --entrypoint promtool "prom/prometheus:$(cat .github/versions/prometheus)" check metrics < "$RUNNER_TEMP/metrics.txt"
 
   govulncheck:
     name: Go (govulncheck)
@@ -66,9 +66,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - id: pins
+        run: echo "terraform=$(cat .github/versions/terraform)" >> "$GITHUB_OUTPUT"
       - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
         with:
-          terraform_version: "~1.9"
+          terraform_version: ${{ steps.pins.outputs.terraform }}
       - run: terraform fmt -check -recursive terraform
       - name: validate
         run: |
@@ -88,9 +90,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: "1.27"
+          go-version-file: autoscaler/go.mod
           cache: false
-      - run: go install github.com/yannh/kubeconform/cmd/kubeconform@v0.6.7
+      - run: go install github.com/yannh/kubeconform/cmd/kubeconform@$(cat .github/versions/kubeconform)
       - run: echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
       - name: kubeconform (deploy/ via Kustomize, and the Argo CD objects under gitops/)
         run: make manifests
@@ -99,7 +101,7 @@ jobs:
       - name: promtool
         run: |
           docker run --rm -v "$PWD/observability:/rules:ro" --entrypoint promtool \
-            "prom/prometheus:${PROMETHEUS_VERSION}" check rules /rules/prometheus-rules.yaml
+            "prom/prometheus:$(cat .github/versions/prometheus)" check rules /rules/prometheus-rules.yaml
       - name: dashboard is valid JSON
         run: jq empty observability/grafana/runner-platform.json
 
@@ -118,9 +120,7 @@ jobs:
           cluster_name: gitops-e2e
       - name: Install Argo CD
         run: |
-          # Pinned in .github/e2e/argocd-version rather than here, so that
-          # upstream.yml can bump it: a workflow token may not edit workflows.
-          ARGOCD_VERSION=$(cat .github/e2e/argocd-version)
+          ARGOCD_VERSION=$(cat .github/versions/argocd)
           echo "Argo CD ${ARGOCD_VERSION}"
           kubectl create namespace argocd
           kubectl apply -n argocd --server-side --force-conflicts \

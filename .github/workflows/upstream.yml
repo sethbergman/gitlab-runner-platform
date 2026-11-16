@@ -1,9 +1,10 @@
 name: upstream
 
-# Dependabot cannot see the Argo CD version the e2e job installs or the
-# gitlab-runner chart the tenants pin. Once a week this compares both with
-# their latest release and opens, or refreshes, one pull request per pin that
-# is behind, with CI dispatched on it. See .github/scripts/upstream.sh.
+# Dependabot cannot see the tools CI installs from GitHub releases (pinned
+# under .github/versions/) or the gitlab-runner chart the tenants pin. Once a
+# week this compares each with its latest release and opens, or refreshes, one
+# pull request per pin that is behind, with CI dispatched on it. See
+# .github/scripts/upstream.sh.
 
 on:
   schedule:
@@ -17,7 +18,7 @@ permissions:
 
 jobs:
   bumps:
-    name: Argo CD and gitlab-runner chart
+    name: Tool pins and gitlab-runner chart
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
