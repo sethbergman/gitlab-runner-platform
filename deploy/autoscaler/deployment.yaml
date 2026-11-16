@@ -62,7 +62,7 @@ spec:
       containers:
         - name: autoscaler
           # Pin by digest in real use.
-          image: ghcr.io/sethbergman/warmpool-autoscaler:v0.1.0
+          image: ghcr.io/sethbergman/warmpool-autoscaler:v0.1.1
           envFrom:
             - configMapRef:
                 name: warmpool-autoscaler
