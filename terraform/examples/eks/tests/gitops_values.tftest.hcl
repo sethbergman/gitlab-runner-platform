@@ -36,7 +36,7 @@ mock_provider "helm" {}
 variables {
   cluster_name  = "platform-prod"
   gitlab_url    = "https://gitlab.example.com"
-  chart_version = "0.71.0"
+  chart_version = regex("chart_version\\s*=\\s*\"([^\"]+)\"", file("terraform.tfvars.example"))[0]
   use_gitops    = true
 }
 
