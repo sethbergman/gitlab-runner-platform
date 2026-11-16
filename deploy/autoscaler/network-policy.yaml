@@ -1,0 +1,44 @@
+# Placeholders need no network at all. The autoscaler needs DNS, HTTPS out
+# (GitLab API and the Kubernetes API), and metrics scrapes in.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: runner-warm-pool-deny-all
+  namespace: gitlab-runner-system
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: runner-warm-pool
+  policyTypes: ["Ingress", "Egress"]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: warmpool-autoscaler
+  namespace: gitlab-runner-system
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: warmpool-autoscaler
+  policyTypes: ["Ingress", "Egress"]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - port: 8080
+          protocol: TCP
+  egress:
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: ["169.254.169.254/32"]
+      ports:
+        - port: 443
+          protocol: TCP

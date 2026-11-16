@@ -1,0 +1,32 @@
+# Least privilege: the autoscaler can read and patch the scale of exactly one
+# Deployment, and nothing else in the cluster.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: warmpool-autoscaler
+  namespace: gitlab-runner-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: warmpool-autoscaler
+  namespace: gitlab-runner-system
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments/scale"]
+    resourceNames: ["runner-warm-pool"]
+    verbs: ["get", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: warmpool-autoscaler
+  namespace: gitlab-runner-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: warmpool-autoscaler
+subjects:
+  - kind: ServiceAccount
+    name: warmpool-autoscaler
+    namespace: gitlab-runner-system
