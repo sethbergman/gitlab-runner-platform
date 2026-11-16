@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
 # Opens, or refreshes, one pull request per upstream pin that is behind its
-# latest release, then runs CI on it. Dependabot sees neither pin:
+# latest release, then runs CI on it. Dependabot sees none of these:
 #
-#   - the Argo CD the e2e job installs (.github/e2e/argocd-version);
+#   - the tools CI installs from GitHub releases, each pinned in a file under
+#     .github/versions/ (argocd for the e2e job, kubeconform, prometheus for
+#     promtool, terraform) rather than in a workflow, which a workflow token
+#     may not edit;
 #   - the gitlab-runner chart every tenant pins (gitops/tenants/*/config.json
 #     and terraform/examples/eks/terraform.tfvars.example).
 #
@@ -43,20 +46,35 @@ propose() { # branch title body file...
   git checkout -q main
 }
 
-# Argo CD, as installed on kind by the gitops-e2e job.
-current=$(cat .github/e2e/argocd-version)
-latest=$(curl -fsSL -H 'Accept: application/vnd.github+json' \
-  https://api.github.com/repos/argoproj/argo-cd/releases/latest | jq -r .tag_name)
-echo "argo-cd: pinned ${current}, latest ${latest}"
-if newer "${current}" "${latest}"; then
-  echo "${latest}" > .github/e2e/argocd-version
-  propose deps/argocd "Bump Argo CD to ${latest} in the e2e job" \
-    "The gitops-e2e job installed Argo CD ${current}; ${latest} is the latest release: https://github.com/argoproj/argo-cd/releases/tag/${latest}
+github_latest() { # owner/repo, prints the tag of the latest release
+  curl -fsSL -H 'Accept: application/vnd.github+json' \
+    "https://api.github.com/repos/$1/releases/latest" | jq -r .tag_name
+}
 
-Production Argo CD is not managed from this repository, so this only changes what the e2e test runs against. A green run here is the evidence that the manifests under gitops/ still behave on the new version.
+# Tools pinned under .github/versions/: pin file, repository, and whether the
+# file holds the tag as is or without its leading v (setup-terraform takes a
+# bare version).
+for spec in \
+  "argocd      argoproj/argo-cd      tag" \
+  "kubeconform yannh/kubeconform     tag" \
+  "prometheus  prometheus/prometheus tag" \
+  "terraform   hashicorp/terraform   bare"
+do
+  read -r name repo form <<<"${spec}"
+  current=$(cat ".github/versions/${name}")
+  tag=$(github_latest "${repo}")
+  latest=${tag}
+  [ "${form}" = bare ] && latest=${tag#v}
+  echo "${name}: pinned ${current}, latest ${latest}"
+  newer "${current}" "${latest}" || continue
+  echo "${latest}" > ".github/versions/${name}"
+  propose "deps/${name}" "Bump ${name} to ${latest} in CI" \
+    "CI pinned ${name} ${current}; ${latest} is the latest release: https://github.com/${repo}/releases/tag/${tag}
 
-Opened by .github/workflows/upstream.yml." .github/e2e/argocd-version
-fi
+Nothing deployed changes: this only moves the version CI installs. A green run here is the evidence that the checks still pass on it.
+
+Opened by .github/workflows/upstream.yml." ".github/versions/${name}"
+done
 
 # gitlab-runner chart, as pinned by every tenant and the Terraform example.
 current=$(jq -r .chartVersion gitops/tenants/*/config.json | sort -u)
