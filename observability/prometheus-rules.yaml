@@ -1,0 +1,64 @@
+# Prometheus rule file (check with `promtool check rules`). To use with the
+# Prometheus Operator, wrap the `groups:` list in a PrometheusRule's spec.
+groups:
+  - name: warmpool-autoscaler
+    rules:
+      - alert: WarmPoolAutoscalerStale
+        expr: time() - warmpool_last_success_timestamp_seconds > 300
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Warm-pool autoscaler has not reconciled for over 5 minutes
+          description: >-
+            The pool is holding its last size. Check GitLab API reachability and
+            the token (warmpool_errors_total{stage="queue"}) and RBAC
+            (stage="scale_get" or "scale_set").
+          runbook: docs/runbook.md#autoscaler-stale
+
+      - alert: WarmPoolAutoscalerAbsent
+        expr: absent(warmpool_reconciles_total)
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: No warm-pool autoscaler metrics are being scraped
+          runbook: docs/runbook.md#autoscaler-stale
+
+      - alert: WarmPoolPinnedAtMax
+        expr: >-
+          warmpool_desired_replicas >= warmpool_max_replicas
+          and warmpool_pending_jobs > warmpool_max_replicas
+        for: 30m
+        labels:
+          severity: info
+        annotations:
+          summary: Queue has exceeded the warm-pool ceiling for 30 minutes
+          description: >-
+            Jobs are waiting for new nodes. Either demand grew (raise
+            MAX_REPLICAS and the CI node group's max size) or a pipeline is
+            fanning out unexpectedly.
+          runbook: docs/runbook.md#pool-pinned-at-max
+
+  - name: gitlab-runner
+    rules:
+      - alert: GitLabRunnerAtConcurrencyLimit
+        expr: >-
+          sum by (namespace) (gitlab_runner_jobs)
+          / sum by (namespace) (gitlab_runner_concurrent) > 0.9
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Runner manager in {{ $labels.namespace }} is above 90% of its concurrency limit"
+          description: Jobs will queue in GitLab even if nodes are free. Raise the tenant's `concurrent` (and its quota) in Terraform.
+          runbook: docs/runbook.md#runner-at-concurrency-limit
+
+      - alert: GitLabRunnerErrors
+        expr: sum by (namespace) (increase(gitlab_runner_errors_total{level="error"}[15m])) > 10
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Runner manager in {{ $labels.namespace }} is logging errors"
+          runbook: docs/runbook.md#runner-errors

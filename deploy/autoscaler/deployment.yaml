@@ -1,0 +1,122 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: warmpool-autoscaler
+  namespace: gitlab-runner-system
+data:
+  QUEUE_SOURCE: gitlab
+  GITLAB_URL: https://gitlab.example.com
+  # Project IDs or paths whose pending jobs this fleet serves.
+  GITLAB_PROJECTS: "platform/api,platform/web,payments/ledger"
+  # Tags configured on the runners (in GitLab) that this pool serves.
+  RUNNER_TAGS: "docker,linux"
+  RUN_UNTAGGED: "true"
+  JOBS_PER_REPLICA: "1"
+  HEADROOM: "2"
+  MIN_BUSINESS: "2"
+  MIN_OFF_HOURS: "0"
+  MAX_REPLICAS: "40"
+  BUSINESS_HOURS: "Mon-Fri 07:00-19:00"
+  TZ_NAME: America/Chicago
+  SCALE_DOWN_STABILIZATION: 10m
+  INTERVAL: 15s
+  LOG_LEVEL: info
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: warmpool-autoscaler
+  namespace: gitlab-runner-system
+  labels:
+    app.kubernetes.io/name: warmpool-autoscaler
+    app.kubernetes.io/part-of: gitlab-runner-platform
+  annotations:
+    checkov.io/skip1: CKV_K8S_9=readiness intentionally omitted, see comment on livenessProbe
+    checkov.io/skip2: CKV_K8S_38=needs its token to patch the warm pool's scale; RBAC limits it to that
+    checkov.io/skip3: CKV_K8S_43=pin by digest when you publish a release (see README)
+    checkov.io/skip4: CKV_K8S_15=pull policy follows digest pinning
+spec:
+  # One replica: the loop is idempotent and a short gap only means the pool
+  # holds its size, so leader election is not worth its complexity here.
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: warmpool-autoscaler
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: warmpool-autoscaler
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+    spec:
+      serviceAccountName: warmpool-autoscaler
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: autoscaler
+          # Pin by digest in real use.
+          image: ghcr.io/sethbergman/warmpool-autoscaler:v0.1.0
+          envFrom:
+            - configMapRef:
+                name: warmpool-autoscaler
+          env:
+            - name: GITLAB_TOKEN_FILE
+              value: /var/run/secrets/gitlab/token
+          ports:
+            - name: http
+              containerPort: 8080
+          # Liveness only. Readiness would pull the pod out of its Service
+          # during a GitLab outage, which is exactly when its metrics and
+          # error counters matter most.
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 200m
+              memory: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: gitlab-token
+              mountPath: /var/run/secrets/gitlab
+              readOnly: true
+      volumes:
+        # A read_api token, synced from your secret store (Vault, External
+        # Secrets, Secrets Manager). Never commit it.
+        - name: gitlab-token
+          secret:
+            secretName: warmpool-gitlab-token
+            items:
+              - key: token
+                path: token
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: warmpool-autoscaler
+  namespace: gitlab-runner-system
+  labels:
+    app.kubernetes.io/name: warmpool-autoscaler
+spec:
+  selector:
+    app.kubernetes.io/name: warmpool-autoscaler
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http

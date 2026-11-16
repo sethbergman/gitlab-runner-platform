@@ -1,0 +1,71 @@
+# Placeholder pods that hold CI node capacity. They run below every real
+# workload, so the scheduler evicts one the moment a job pod needs its spot,
+# and the job starts on a node that is already up. The cluster autoscaler (or
+# Karpenter) sees the evicted placeholder as pending and adds a node behind it.
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: runner-warm-pool
+value: -10
+preemptionPolicy: Never
+globalDefault: false
+description: "Placeholder pods that reserve CI node capacity; preempted by any real pod."
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: runner-warm-pool
+  namespace: gitlab-runner-system
+  labels:
+    app.kubernetes.io/name: runner-warm-pool
+    app.kubernetes.io/part-of: gitlab-runner-platform
+  annotations:
+    checkov.io/skip1: CKV_K8S_8=pause container has nothing to probe
+    checkov.io/skip2: CKV_K8S_9=pause container has nothing to probe
+    checkov.io/skip3: CKV_K8S_43=tag is pinned; pin the digest your registry mirror serves
+    checkov.io/skip4: CKV_K8S_15=IfNotPresent is intended so placeholders start from the node's cache
+spec:
+  replicas: 0 # owned by warmpool-autoscaler; do not set in GitOps diffs
+  revisionHistoryLimit: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: runner-warm-pool
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: runner-warm-pool
+    spec:
+      priorityClassName: runner-warm-pool
+      terminationGracePeriodSeconds: 0
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      # Same placement as job pods, so the capacity they hold is usable.
+      nodeSelector:
+        workload: ci
+      tolerations:
+        - key: dedicated
+          operator: Equal
+          value: ci
+          effect: NoSchedule
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65535
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: hold
+          image: registry.k8s.io/pause:3.10
+          # Size one placeholder like one typical job pod (build + helper),
+          # matching job_cpu_request / job_memory_request in Terraform.
+          resources:
+            requests:
+              cpu: 600m
+              memory: 1152Mi
+            limits:
+              cpu: 600m
+              memory: 1152Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
