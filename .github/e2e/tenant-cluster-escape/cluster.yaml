@@ -1,0 +1,20 @@
+# What a tenant must never be able to do through Argo CD: create anything
+# cluster-wide, such as a namespace of its own or a ClusterRole. The
+# gitops-e2e job points an Application in project ci-tenants at this directory
+# and expects Argo CD to refuse both objects (clusterResourceWhitelist is empty
+# in gitops/platform/appproject.yaml). Nothing applies this for real.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ci-rogue
+  labels:
+    platform.ci/tenant: rogue
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: tenant-escape
+rules:
+  - apiGroups: ["*"]
+    resources: ["*"]
+    verbs: ["*"]
