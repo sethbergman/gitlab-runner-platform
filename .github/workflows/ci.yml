@@ -161,6 +161,25 @@ jobs:
           kubectl -n argocd wait application/warmpool-autoscaler \
             --for=jsonpath='{.status.sync.status}'=Synced --timeout=300s
           kubectl -n gitlab-runner-system get deploy,role,rolebinding,networkpolicy
+      - name: The pinned image runs
+        run: |
+          # Synced only means the objects exist: Argo CD reported it while
+          # the deployment pinned a tag that had never been published. The
+          # pod waits for the token Secret, which a secret store provides on
+          # a real cluster; a placeholder lets it start here. GITLAB_URL does
+          # not resolve, so every reconcile fails and the autoscaler holds
+          # the pool at its current size, the documented behavior under an
+          # outage, and it never touches the warm pool the drift test below
+          # resizes by hand.
+          kubectl -n gitlab-runner-system create secret generic warmpool-gitlab-token             --from-literal=token=placeholder
+          kubectl -n gitlab-runner-system rollout status deploy/warmpool-autoscaler --timeout=180s
+          kubectl -n argocd wait application/warmpool-autoscaler             --for=jsonpath='{.status.health.status}'=Healthy --timeout=120s
+          for _ in $(seq 30); do
+            kubectl -n gitlab-runner-system logs deploy/warmpool-autoscaler > "$RUNNER_TEMP/autoscaler.log"
+            grep -q '"msg":"starting"' "$RUNNER_TEMP/autoscaler.log"               && grep -q 'queue read failed; holding current size' "$RUNNER_TEMP/autoscaler.log" && break
+            sleep 2
+          done
+          grep -E '"msg":"(starting|queue read failed; holding current size)"' "$RUNNER_TEMP/autoscaler.log"
       - name: ApplicationSet creates one synced runner release per tenant
         run: |
           # What Terraform provides on a real cluster, outside Argo CD's reach:
