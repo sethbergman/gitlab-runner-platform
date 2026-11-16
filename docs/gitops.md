@@ -40,6 +40,8 @@ From then on, every change is a pull request. Argo CD applies it after merge.
 
 A tenant's runner values contain its IAM role ARN and cache bucket, which come from Terraform. Writing them by hand would let the two drift apart, so the values are rendered from the same template Terraform uses in Helm mode (`runner_helm_values` output) and committed by `make gitops-values`. A reviewer sees the exact rendered diff in the pull request.
 
+CI holds the two sides together: a `terraform test` on the example with every provider mocked ([`terraform/examples/eks/tests/`](../terraform/examples/eks/tests/)) fails when a committed `values.yaml`, the tenant set or a `config.json` chart version differs from what Terraform renders, and `make tenants` renders each tenant with its pinned chart and schema-checks the result.
+
 ## The replicas gotcha
 
 The warm-pool Deployment says `replicas: 0` in Git, but `warmpool-autoscaler` changes it all day. Left alone, Argo CD would see each resize as drift, and self-heal would reset the pool, fighting the autoscaler every few seconds. The autoscaler Application therefore ignores `/spec/replicas` on that one Deployment, and `RespectIgnoreDifferences=true` keeps a sync from resetting it either.
