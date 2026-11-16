@@ -5,7 +5,7 @@ data "aws_caller_identity" "current" {}
 data "aws_region" "current" {}
 
 locals {
-  cache_bucket = "${var.name}-runner-cache-${data.aws_caller_identity.current.account_id}-${data.aws_region.current.name}"
+  cache_bucket = "${var.name}-runner-cache-${data.aws_caller_identity.current.account_id}-${data.aws_region.current.region}"
 }
 
 resource "aws_s3_bucket" "cache" {

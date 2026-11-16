@@ -20,15 +20,15 @@ terraform {
   required_providers {
     aws = {
       source  = "hashicorp/aws"
-      version = ">= 5.40, < 6.0"
+      version = ">= 6.0, < 6.74"
     }
     kubernetes = {
       source  = "hashicorp/kubernetes"
-      version = ">= 2.27, < 3.0"
+      version = ">= 2.27, < 3.6"
     }
     helm = {
       source  = "hashicorp/helm"
-      version = ">= 2.12, < 3.0"
+      version = ">= 3.0, < 3.4"
     }
   }
 }
@@ -63,10 +63,10 @@ provider "kubernetes" {
 }
 
 provider "helm" {
-  kubernetes {
+  kubernetes = {
     host                   = data.aws_eks_cluster.this.endpoint
     cluster_ca_certificate = base64decode(data.aws_eks_cluster.this.certificate_authority[0].data)
-    exec {
+    exec = {
       api_version = "client.authentication.k8s.io/v1beta1"
       command     = "aws"
       args        = ["eks", "get-token", "--cluster-name", var.cluster_name, "--region", var.region]
