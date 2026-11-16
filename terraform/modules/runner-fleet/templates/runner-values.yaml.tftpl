@@ -1,0 +1,83 @@
+# Values for the gitlab-runner Helm chart, rendered per tenant by Terraform.
+gitlabUrl: ${gitlab_url}
+concurrent: ${concurrent}
+checkInterval: 3
+logFormat: json
+unregisterRunners: true
+
+rbac:
+  create: true
+
+serviceAccount:
+  create: true
+  name: ${service_account}
+  annotations:
+    eks.amazonaws.com/role-arn: ${role_arn}
+
+# The runner manager itself runs fully locked down.
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: false
+  runAsNonRoot: true
+  privileged: false
+  capabilities:
+    drop: ["ALL"]
+podSecurityContext:
+  runAsUser: 100
+  fsGroup: 65533
+  seccompProfile:
+    type: RuntimeDefault
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    memory: 512Mi
+
+podLabels:
+  ${tenant_label}: ${tenant}
+
+metrics:
+  enabled: true
+  portName: metrics
+  port: 9252
+service:
+  enabled: true
+
+runners:
+  secret: ${token_secret}
+  config: |
+    [[runners]]
+      name = "${tenant}"
+      [runners.kubernetes]
+        namespace = "${namespace}"
+        image = "${build_image}"
+        privileged = false
+        allow_privilege_escalation = false
+        cpu_request = "${job_cpu_request}"
+        cpu_limit = "${job_cpu_limit}"
+        memory_request = "${job_memory_request}"
+        memory_limit = "${job_memory_limit}"
+        helper_cpu_request = "100m"
+        helper_memory_request = "128Mi"
+        service_cpu_request = "100m"
+        service_memory_request = "128Mi"
+        poll_timeout = 600
+        [runners.kubernetes.node_selector]
+%{ for k, v in node_selector ~}
+          "${k}" = "${v}"
+%{ endfor ~}
+        [runners.kubernetes.node_tolerations]
+          "${node_taint}" = "NoSchedule"
+        [runners.kubernetes.pod_labels]
+          "${tenant_label}" = "${tenant}"
+      [runners.cache]
+        Type = "s3"
+        Path = "${tenant}"
+        Shared = true
+        [runners.cache.s3]
+          ServerAddress = "s3.amazonaws.com"
+          BucketName = "${cache_bucket}"
+          BucketLocation = "${cache_region}"
+          AuthenticationType = "iam"
