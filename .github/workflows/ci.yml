@@ -13,9 +13,11 @@ on:
 permissions:
   contents: read
 
+# A newer push to a pull request supersedes the run in flight; on main, tags
+# and manual runs every commit gets a finished run, queued one after another.
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   PROMETHEUS_VERSION: v2.54.1
