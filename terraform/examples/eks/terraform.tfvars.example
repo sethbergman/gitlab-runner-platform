@@ -1,4 +1,4 @@
 cluster_name  = "platform-prod"
 region        = "us-east-1"
 gitlab_url    = "https://gitlab.example.com"
-chart_version = "0.71.0" # pin to the chart release that matches your GitLab version
+chart_version = "0.94.3" # pin to the chart release that matches your GitLab version
