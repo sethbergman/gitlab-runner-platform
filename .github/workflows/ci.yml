@@ -89,6 +89,8 @@ jobs:
             terraform -chdir="$dir" validate
             echo "::endgroup::"
           done
+      - name: the module keeps the security posture it documents (mocked providers)
+        run: terraform -chdir=terraform/modules/runner-fleet test
       - name: committed tenant values match what Terraform renders (mocked providers)
         run: terraform -chdir=terraform/examples/eks test
 

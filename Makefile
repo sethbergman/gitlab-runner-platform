@@ -32,11 +32,13 @@ tf-validate:
 		terraform -chdir=$$d init -backend=false -input=false >/dev/null && terraform -chdir=$$d validate; \
 	done
 
-# Proves gitops/tenants/*/ is what the example renders, with every provider
-# mocked (terraform/examples/eks/tests). No AWS, no cluster.
+# Proves the module's guardrails (terraform/modules/runner-fleet/tests) and
+# that gitops/tenants/*/ is what the example renders
+# (terraform/examples/eks/tests), with every provider mocked. No AWS, no cluster.
 tf-test:
-	terraform -chdir=terraform/examples/eks init -backend=false -input=false >/dev/null
-	terraform -chdir=terraform/examples/eks test
+	for d in terraform/modules/runner-fleet terraform/examples/eks; do \
+		terraform -chdir=$$d init -backend=false -input=false >/dev/null && terraform -chdir=$$d test || exit 1; \
+	done
 
 # Argo CD CRD schemas for kubeconform, from the datree CRDs catalog pinned to
 # a commit so the check is reproducible. Bump deliberately.
