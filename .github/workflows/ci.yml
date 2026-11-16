@@ -322,6 +322,8 @@ jobs:
     permissions:
       contents: read
       packages: write
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
@@ -343,6 +345,7 @@ jobs:
             type=ref,event=tag
             type=ref,event=pr
       - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        id: build
         with:
           context: autoscaler
           # One tag, both architectures: the Dockerfile cross-compiles, so no
@@ -352,5 +355,61 @@ jobs:
           push: ${{ startsWith(github.ref, 'refs/tags/v') }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          provenance: true
+          # BuildKit attaches an SBOM and a provenance statement to the image
+          # index; mode=max records the source commit and the build steps.
+          provenance: mode=max
           sbom: true
+
+  # On a v* tag, once every job is green: sign a build-provenance attestation
+  # for the pushed image through Sigstore and create the GitHub Release
+  # carrying the image digest and the commands that verify it.
+  release:
+    name: GitHub Release (tags)
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [image, govulncheck, terraform, manifests, gitops-e2e, checkov]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write     # create the release
+      id-token: write     # sign the attestation
+      attestations: write # store it on the repository
+      packages: write     # and on the image in GHCR
+    env:
+      IMAGE: ghcr.io/${{ github.repository_owner }}/warmpool-autoscaler
+    steps:
+      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ needs.image.outputs.digest }}
+          push-to-registry: true
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+          DIGEST: ${{ needs.image.outputs.digest }}
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          {
+            echo "## Image"
+            echo
+            echo '```'
+            echo "${IMAGE}:${TAG}"
+            echo "${IMAGE}@${DIGEST}"
+            echo '```'
+            echo
+            echo "linux/amd64 and linux/arm64, with a BuildKit SBOM and provenance on the index and a signed build-provenance attestation. Verify, then pin the digest in deploy/autoscaler/deployment.yaml:"
+            echo
+            echo '```'
+            echo "gh attestation verify oci://${IMAGE}:${TAG} --owner ${OWNER}"
+            echo "docker buildx imagetools inspect ${IMAGE}:${TAG} --format '{{ json .SBOM }}'"
+            echo '```'
+          } > "$RUNNER_TEMP/notes.md"
+          args=()
+          case "$TAG" in *-*) args+=(--prerelease) ;; esac
+          gh release create "$TAG" --verify-tag --title "$TAG" --generate-notes \
+            --notes-file "$RUNNER_TEMP/notes.md" "${args[@]}"
