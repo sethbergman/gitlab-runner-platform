@@ -72,6 +72,8 @@ jobs:
             terraform -chdir="$dir" validate
             echo "::endgroup::"
           done
+      - name: committed tenant values match what Terraform renders (mocked providers)
+        run: terraform -chdir=terraform/examples/eks test
 
   manifests:
     name: Manifests, rules, dashboard
@@ -86,6 +88,8 @@ jobs:
       - run: echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
       - name: kubeconform (deploy/ via Kustomize, and the Argo CD objects under gitops/)
         run: make manifests
+      - name: each tenant's values render with its pinned chart
+        run: make tenants
       - name: promtool
         run: |
           docker run --rm -v "$PWD/observability:/rules:ro" --entrypoint promtool \

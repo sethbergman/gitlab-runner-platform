@@ -17,7 +17,7 @@ locals {
       node_selector      = var.ci_node_selector
       node_taint         = var.ci_node_taint
       cache_bucket       = aws_s3_bucket.cache.bucket
-      cache_region       = data.aws_region.current.name
+      cache_region       = data.aws_region.current.region
     })
   }
 }

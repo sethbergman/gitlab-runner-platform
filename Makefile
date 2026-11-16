@@ -1,4 +1,4 @@
-.PHONY: help test demo build fmt validate tf-validate manifests rules gitops-values
+.PHONY: help test demo build fmt validate tf-validate tf-test manifests tenants rules gitops-values
 
 help: ## Show targets
 	@grep -E '^[a-z-]+:.*##' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-12s %s\n", $$1, $$2}'
@@ -24,13 +24,19 @@ fmt: ## Format Go and Terraform
 	cd autoscaler && gofmt -w .
 	terraform fmt -recursive terraform
 
-validate: tf-validate manifests rules ## Everything CI checks except Go
+validate: tf-validate tf-test manifests tenants rules ## Everything CI checks except Go
 
 tf-validate:
 	terraform fmt -check -recursive terraform
 	for d in terraform/modules/runner-fleet terraform/examples/eks; do \
 		terraform -chdir=$$d init -backend=false -input=false >/dev/null && terraform -chdir=$$d validate; \
 	done
+
+# Proves gitops/tenants/*/ is what the example renders, with every provider
+# mocked (terraform/examples/eks/tests). No AWS, no cluster.
+tf-test:
+	terraform -chdir=terraform/examples/eks init -backend=false -input=false >/dev/null
+	terraform -chdir=terraform/examples/eks test
 
 # Argo CD CRD schemas for kubeconform, from the datree CRDs catalog pinned to
 # a commit so the check is reproducible. Bump deliberately.
@@ -40,6 +46,15 @@ CRDS_CATALOG = https://raw.githubusercontent.com/datreeio/CRDs-catalog/$(CRDS_CA
 manifests:
 	kubectl kustomize deploy/autoscaler | kubeconform -strict -summary -
 	kubeconform -strict -summary -schema-location default -schema-location '$(CRDS_CATALOG)' gitops/bootstrap gitops/platform .github/e2e
+
+# Each tenant's values must render with the chart version its config.json
+# pins, into objects that pass the Kubernetes schemas.
+tenants:
+	for d in gitops/tenants/*/; do \
+		t=$$(basename $$d); v=$$(jq -r .chartVersion $$d/config.json); echo "== $$t (gitlab-runner $$v)"; \
+		helm template gitlab-runner gitlab-runner --repo https://charts.gitlab.io --version "$$v" \
+			--namespace "ci-$$t" -f $$d/values.yaml | kubeconform -strict -summary - || exit 1; \
+	done
 
 rules:
 	promtool check rules observability/prometheus-rules.yaml
