@@ -10,13 +10,13 @@ The platform's users are engineers waiting on pipelines, so the SLOs measure wai
 
 ## Example queries
 
-Autoscaler freshness, as a ratio of good minutes:
+Autoscaler freshness, as a ratio of good minutes. [`prometheus-rules.yaml`](../observability/prometheus-rules.yaml) records `warmpool:fresh_minute:bool` every minute (1 when the last successful reconcile is under 60 s old), so the SLI is its 28-day average:
 
 ```promql
-avg_over_time(
-  ((time() - warmpool_last_success_timestamp_seconds) < bool 60)[28d:1m]
-)
+avg_over_time(warmpool:fresh_minute:bool[28d])
 ```
+
+`WarmPoolFreshnessBudgetBurn` fires when both the last 6 hours and the last 30 minutes burn the 0.5% budget at six times the sustainable rate. That catches intermittent failures too short for `WarmPoolAutoscalerStale`, which needs ten stale minutes in a row. Every alert in the rule file has a unit test in [`prometheus-rules.test.yaml`](../observability/prometheus-rules.test.yaml), run by `make rules` and CI.
 
 How long job pods in one tenant waited to be scheduled, per pod, from kube-state-metrics:
 

@@ -1,5 +1,7 @@
-# Prometheus rule file (check with `promtool check rules`). To use with the
-# Prometheus Operator, wrap the `groups:` list in a PrometheusRule's spec.
+# Prometheus rule file. `promtool check rules` parses it and `promtool test
+# rules prometheus-rules.test.yaml` fires every alert (both: `make rules`).
+# To use with the Prometheus Operator, wrap the `groups:` list in a
+# PrometheusRule's spec.
 groups:
   - name: warmpool-autoscaler
     rules:
@@ -62,3 +64,30 @@ groups:
         annotations:
           summary: "Runner manager in {{ $labels.namespace }} is logging errors"
           runbook: docs/runbook.md#runner-errors
+
+  - name: warmpool-slo
+    rules:
+      # 1 for a minute in which the last successful reconcile was under 60 s
+      # old, else 0. The autoscaler-freshness SLI in docs/slo.md is the 28-day
+      # average of this series. It is absent while the autoscaler is, which
+      # WarmPoolAutoscalerAbsent covers.
+      - record: warmpool:fresh_minute:bool
+        expr: (time() - warmpool_last_success_timestamp_seconds) < bool 60
+
+      # Slow burn on the 99.5% objective (0.5% budget): both the last 6 hours
+      # and the last 30 minutes burn at six times the sustainable rate, which
+      # spends the 28-day budget in under five days. Intermittent failures of
+      # a few minutes never trip WarmPoolAutoscalerStale, which needs ten
+      # stale minutes in a row, but they do burn the budget; a fast-burn pair
+      # would only duplicate that alert.
+      - alert: WarmPoolFreshnessBudgetBurn
+        expr: >-
+          (1 - avg_over_time(warmpool:fresh_minute:bool[6h])) > (6 * 0.005)
+          and (1 - avg_over_time(warmpool:fresh_minute:bool[30m])) > (6 * 0.005)
+        for: 15m
+        labels:
+          severity: info
+        annotations:
+          summary: Autoscaler freshness is burning its 28-day error budget
+          description: More than 3% of the minutes in the last 6 hours, and in the last 30 minutes, had no successful reconcile within 60 s. Look for intermittent GitLab or API-server failures in warmpool_errors_total.
+          runbook: docs/runbook.md#autoscaler-stale
