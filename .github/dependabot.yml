@@ -1,0 +1,14 @@
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: weekly }
+  - package-ecosystem: gomod
+    directory: /autoscaler
+    schedule: { interval: weekly }
+  - package-ecosystem: docker
+    directory: /autoscaler
+    schedule: { interval: weekly }
+  - package-ecosystem: terraform
+    directories: ["/terraform/modules/runner-fleet", "/terraform/examples/eks"]
+    schedule: { interval: weekly }

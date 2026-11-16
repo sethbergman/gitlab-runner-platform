@@ -1,0 +1,105 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  go:
+    name: Go (vet, test, build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: autoscaler
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: autoscaler/go.mod
+      - name: gofmt
+        run: test -z "$(gofmt -l . | tee /dev/stderr)"
+      - run: go vet ./...
+      - run: go test -race -covermode=atomic -coverprofile=coverage.out ./...
+      - run: go tool cover -func=coverage.out | tail -1
+      - run: CGO_ENABLED=0 go build -trimpath -o /dev/null ./cmd/warmpool-autoscaler
+
+  terraform:
+    name: Terraform (fmt, validate)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "~1.9"
+      - run: terraform fmt -check -recursive terraform
+      - name: validate
+        run: |
+          for dir in terraform/modules/runner-fleet terraform/examples/eks; do
+            echo "::group::$dir"
+            terraform -chdir="$dir" init -backend=false -input=false
+            terraform -chdir="$dir" validate
+            echo "::endgroup::"
+          done
+
+  manifests:
+    name: Manifests, rules, dashboard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+      - run: go install github.com/yannh/kubeconform/cmd/kubeconform@v0.6.7
+      - name: kubeconform
+        run: kubectl kustomize deploy/autoscaler | "$(go env GOPATH)/bin/kubeconform" -strict -summary -
+      - name: promtool
+        run: |
+          docker run --rm -v "$PWD/observability:/rules:ro" --entrypoint promtool \
+            prom/prometheus:v2.54.1 check rules /rules/prometheus-rules.yaml
+      - name: dashboard is valid JSON
+        run: jq empty observability/grafana/runner-platform.json
+
+  checkov:
+    name: Checkov (IaC security)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: bridgecrewio/checkov-action@v12
+        with:
+          directory: .
+          framework: terraform,kubernetes,dockerfile,github_actions
+          quiet: true
+
+  image:
+    name: Container image
+    runs-on: ubuntu-latest
+    needs: [go]
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        if: startsWith(github.ref, 'refs/tags/v')
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: autoscaler
+          build-args: VERSION=${{ github.ref_name }}
+          push: ${{ startsWith(github.ref, 'refs/tags/v') }}
+          tags: ghcr.io/${{ github.repository_owner }}/warmpool-autoscaler:${{ github.ref_name }}
+          provenance: true
+          sbom: true
