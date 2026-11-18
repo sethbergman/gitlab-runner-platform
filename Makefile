@@ -1,4 +1,4 @@
-.PHONY: help test demo build fmt validate tf-validate tf-test manifests tenants rules gitops-values
+.PHONY: help test demo build fmt validate workflows tf-validate tf-test manifests tenants rules gitops-values
 
 help: ## Show targets
 	@grep -E '^[a-z-]+:.*##' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-12s %s\n", $$1, $$2}'
@@ -24,7 +24,11 @@ fmt: ## Format Go and Terraform
 	cd autoscaler && gofmt -w .
 	terraform fmt -recursive terraform
 
-validate: tf-validate tf-test manifests tenants rules ## Everything CI checks except Go
+validate: workflows tf-validate tf-test manifests tenants rules ## Everything CI checks except Go
+
+# actionlint, with shellcheck on every run step, at the version CI pins.
+workflows:
+	docker run --rm -v "$(CURDIR):/repo:ro" -w /repo rhysd/actionlint:$$(cat .github/versions/actionlint) -color
 
 tf-validate:
 	terraform fmt -check -recursive terraform

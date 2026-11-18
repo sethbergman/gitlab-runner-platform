@@ -19,8 +19,8 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
-# The tools CI installs (Argo CD, kubeconform, Prometheus for promtool,
-# Terraform) are pinned in files under .github/versions/, not here: upstream.yml
+# The tools CI installs (actionlint, Argo CD, kubeconform, Prometheus for
+# promtool, Terraform) are pinned in files under .github/versions/, not here: upstream.yml
 # bumps them weekly, and a workflow token may not edit a workflow.
 jobs:
   go:
@@ -103,7 +103,11 @@ jobs:
         with:
           go-version-file: autoscaler/go.mod
           cache: false
-      - run: go install github.com/yannh/kubeconform/cmd/kubeconform@$(cat .github/versions/kubeconform)
+      - name: actionlint on every workflow, with shellcheck on each run step
+        run: |
+          docker run --rm -v "${PWD}:/repo:ro" -w /repo \
+            "rhysd/actionlint:$(cat .github/versions/actionlint)" -color
+      - run: go install github.com/yannh/kubeconform/cmd/kubeconform@"$(cat .github/versions/kubeconform)"
       - run: echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
       - name: kubeconform (deploy/ via Kustomize, and the Argo CD objects under gitops/)
         run: make manifests
@@ -157,7 +161,7 @@ jobs:
           # objects it manages are applied in the next step pointed at this
           # commit, and a self-healing root would reset them to what Git says.
           yq 'del(.spec.syncPolicy)' "$RUNNER_TEMP/gitops/bootstrap/root.yaml" | kubectl apply -f -
-          for i in $(seq 1 60); do
+          for _ in $(seq 1 60); do
             kubectl -n argocd get application/platform-root -o jsonpath='{.status.resources[*].kind}' | grep -q . && break
             sleep 5
           done
@@ -214,7 +218,7 @@ jobs:
           done
           for dir in gitops/tenants/*/; do
             tenant=$(basename "${dir}")
-            for i in $(seq 1 36); do
+            for _ in $(seq 1 36); do
               kubectl -n argocd get "application/runner-${tenant}" >/dev/null 2>&1 && break
               sleep 5
             done
@@ -227,7 +231,7 @@ jobs:
           # Exactly the folders under gitops/tenants, nothing else.
           kubectl -n argocd get applications -l platform.ci/tenant \
             -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' | sort > "$RUNNER_TEMP/tenant-apps"
-          ls gitops/tenants | sed 's#^#runner-#' | sort | diff - "$RUNNER_TEMP/tenant-apps"
+          find gitops/tenants -mindepth 1 -maxdepth 1 -type d -printf 'runner-%f\n' | sort | diff - "$RUNNER_TEMP/tenant-apps"
       - name: Project ci-tenants refuses guardrail objects, cluster-scoped objects and foreign namespaces
         run: |
           # Three apps a tenant must not get away with: one ships a
@@ -264,7 +268,7 @@ jobs:
               && verdict tenant-cluster | grep -q 'not permitted in project ci-tenants' \
               && verdict tenant-foreign | grep -q -i 'destination'
           }
-          for i in $(seq 1 36); do refused && break; sleep 5; done
+          for _ in $(seq 1 36); do refused && break; sleep 5; done
           for app in tenant-escape tenant-cluster tenant-foreign; do
             echo "== ${app}"
             kubectl -n argocd get "application/${app}" \
