@@ -3,8 +3,8 @@
 # latest release, then runs CI on it. Dependabot sees none of these:
 #
 #   - the tools CI installs from GitHub releases, each pinned in a file under
-#     .github/versions/ (argocd for the e2e job, kubeconform, prometheus for
-#     promtool, terraform) rather than in a workflow, which a workflow token
+#     .github/versions/ (actionlint, argocd for the e2e job, kubeconform,
+#     prometheus for promtool, terraform) rather than in a workflow, which a workflow token
 #     may not edit;
 #   - the gitlab-runner chart every tenant pins (gitops/tenants/*/config.json
 #     and terraform/examples/eks/terraform.tfvars.example).
@@ -52,9 +52,10 @@ github_latest() { # owner/repo, prints the tag of the latest release
 }
 
 # Tools pinned under .github/versions/: pin file, repository, and whether the
-# file holds the tag as is or without its leading v (setup-terraform takes a
-# bare version).
+# file holds the tag as is or without its leading v (setup-terraform and the
+# actionlint image take a bare version).
 for spec in \
+  "actionlint  rhysd/actionlint      bare" \
   "argocd      argoproj/argo-cd      tag" \
   "kubeconform yannh/kubeconform     tag" \
   "prometheus  prometheus/prometheus tag" \
