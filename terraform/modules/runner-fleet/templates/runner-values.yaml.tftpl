@@ -64,6 +64,9 @@ runners:
         service_cpu_request = "100m"
         service_memory_request = "128Mi"
         poll_timeout = 600
+        # Helper image for the runner's own architecture (arm64 on Graviton),
+        # not the x86_64 default.
+        helper_image_autoset_arch_and_os = true
         [runners.kubernetes.node_selector]
 %{ for k, v in node_selector ~}
           "${k}" = "${v}"

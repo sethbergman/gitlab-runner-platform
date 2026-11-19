@@ -7,7 +7,8 @@
 #     prometheus for promtool, terraform) rather than in a workflow, which a workflow token
 #     may not edit;
 #   - the gitlab-runner chart every tenant pins (gitops/tenants/*/config.json
-#     and terraform/examples/eks/terraform.tfvars.example).
+#     and terraform/examples/eks/terraform.tfvars.example);
+#   - the GitLab CE image the gitlab-e2e workflow boots (.github/versions/gitlab).
 #
 # Run from the repository root on a clean checkout of main, with GH_TOKEN set.
 # DRY_RUN=1 prints what would be opened and touches nothing on GitHub.
@@ -96,4 +97,21 @@ if newer "${current}" "${latest}"; then
 Changes gitops/tenants/*/config.json and the Terraform example's chart_version together, which the Terraform test requires. CI renders every tenant with the new chart and syncs them through Argo CD on kind.
 
 Opened by .github/workflows/upstream.yml." gitops/tenants/*/config.json terraform/examples/eks/terraform.tfvars.example
+fi
+
+# GitLab CE for the gitlab-e2e workflow: the newest x.y.z-ce.0 on Docker Hub.
+# That workflow is what the bump must pass, so it is dispatched too.
+current=$(cat .github/versions/gitlab)
+latest=$(curl -fsSL 'https://hub.docker.com/v2/repositories/gitlab/gitlab-ce/tags?page_size=100&ordering=last_updated' |
+  jq -r '.results[].name' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+-ce\.0$' | sort -V | tail -1)
+echo "gitlab-ce: pinned ${current}, latest ${latest}"
+if newer "${current}" "${latest}"; then
+  echo "${latest}" > .github/versions/gitlab
+  propose deps/gitlab "Bump GitLab CE to ${latest} in the GitLab e2e" \
+    "The GitLab e2e booted GitLab CE ${current}; ${latest} is the newest release on Docker Hub: https://hub.docker.com/r/gitlab/gitlab-ce/tags
+
+Nothing deployed changes. The gitlab-e2e run dispatched on this branch is the evidence that the autoscaler and the tenant runners still work against it.
+
+Opened by .github/workflows/upstream.yml." .github/versions/gitlab
+  dry || gh workflow run gitlab-e2e.yml --ref deps/gitlab
 fi
