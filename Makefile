@@ -1,4 +1,4 @@
-.PHONY: help test demo build fmt validate workflows tf-validate tf-test manifests tenants rules gitops-values
+.PHONY: help test demo build fmt validate workflows gitlab-e2e tf-validate tf-test manifests tenants rules gitops-values
 
 help: ## Show targets
 	@grep -E '^[a-z-]+:.*##' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-12s %s\n", $$1, $$2}'
@@ -43,6 +43,15 @@ tf-test:
 	for d in terraform/modules/runner-fleet terraform/examples/eks; do \
 		terraform -chdir=$$d init -backend=false -input=false >/dev/null && terraform -chdir=$$d test || exit 1; \
 	done
+
+# A real GitLab CE runs each tenant's jobs on a throwaway kind cluster, with
+# the autoscaler reading its queue. Needs Docker with ~6 GB free and kind;
+# takes about 10 minutes, most of it GitLab booting. failCgroupV1: false lets
+# the cluster start on Docker hosts still on cgroup v1 (older WSL2 kernels).
+gitlab-e2e: ## End to end against a real GitLab on kind (slow)
+	printf 'kind: Cluster\napiVersion: kind.x-k8s.io/v1alpha4\nkubeadmConfigPatches:\n  - |\n    kind: KubeletConfiguration\n    failCgroupV1: false\n' | \
+		kind create cluster --name gitlab-e2e --config -
+	.github/scripts/gitlab-e2e.sh; rc=$$?; docker rm -f gitlab-e2e >/dev/null; kind delete cluster --name gitlab-e2e; exit $$rc
 
 # Argo CD CRD schemas for kubeconform, from the datree CRDs catalog pinned to
 # a commit so the check is reproducible. Bump deliberately.

@@ -247,6 +247,14 @@ run "rendered_runner_values_keep_jobs_unprivileged_and_credential_free" {
   assert {
     condition = alltrue([
       for t, _ in var.tenants :
+      strcontains(output.runner_helm_values[t], "helper_image_autoset_arch_and_os = true")
+    ])
+    error_message = "Job pods must pull the helper image for the runner's architecture, or they never start on arm64 nodes."
+  }
+
+  assert {
+    condition = alltrue([
+      for t, _ in var.tenants :
       strcontains(output.runner_helm_values[t], "eks.amazonaws.com/role-arn: ${aws_iam_role.runner[t].arn}")
       && strcontains(output.runner_helm_values[t], "AuthenticationType = \"iam\"")
       && strcontains(output.runner_helm_values[t], "Path = \"${t}\"")

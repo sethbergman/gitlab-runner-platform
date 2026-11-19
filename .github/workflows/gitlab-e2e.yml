@@ -1,0 +1,37 @@
+name: gitlab-e2e
+
+# A real GitLab runs real jobs on the platform: see .github/scripts/gitlab-e2e.sh.
+# It boots GitLab CE, so it takes several minutes and runs only when something
+# it exercises changes, weekly, and on demand. It is not a required check.
+
+on:
+  pull_request:
+    paths:
+      - "deploy/autoscaler/**"
+      - "gitops/tenants/**"
+      - ".github/scripts/gitlab-e2e.sh"
+      - ".github/versions/gitlab"
+      - ".github/workflows/gitlab-e2e.yml"
+  schedule:
+    - cron: "41 7 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gitlab-e2e-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  gitlab:
+    name: Real GitLab runs tenant jobs on kind
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: helm/kind-action@ef37e7f390d99f746eb8b610417061a60e82a6cc # v1.14.0
+        with:
+          cluster_name: gitlab-e2e
+      - name: GitLab, autoscaler and tenant runners end to end
+        run: .github/scripts/gitlab-e2e.sh
