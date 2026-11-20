@@ -1,5 +1,9 @@
 # Values for the gitlab-runner Helm chart, rendered per tenant by Terraform.
 gitlabUrl: ${gitlab_url}
+%{ if ca_secret != null ~}
+# Private CA that signs GitLab's certificate, from a Secret in this namespace.
+certsSecretName: ${ca_secret}
+%{ endif ~}
 concurrent: ${concurrent}
 checkInterval: 3
 logFormat: json

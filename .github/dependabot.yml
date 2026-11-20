@@ -10,5 +10,5 @@ updates:
     directory: /autoscaler
     schedule: { interval: weekly }
   - package-ecosystem: terraform
-    directories: ["/terraform/modules/runner-fleet", "/terraform/examples/eks"]
+    directories: ["/terraform/modules/runner-fleet", "/terraform/examples/eks", "/terraform/e2e/kind"]
     schedule: { interval: weekly }
