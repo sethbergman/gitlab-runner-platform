@@ -19,6 +19,18 @@ variable "gitlab_url" {
   }
 }
 
+variable "gitlab_ca_secret" {
+  description = <<-EOT
+    For a GitLab whose certificate a private CA signs: the name of a Secret
+    in each tenant namespace holding that CA as <gitlab host>.crt, which the
+    runner trusts (the chart's certsSecretName). Sync it from your secret
+    store like the runner token. Leave null for a publicly trusted
+    certificate.
+  EOT
+  type        = string
+  default     = null
+}
+
 variable "chart_version" {
   description = "gitlab-runner Helm chart version. Pin it, and move it deliberately alongside your GitLab version."
   type        = string

@@ -301,6 +301,24 @@ run "gitops_mode_installs_no_releases_but_renders_values" {
   }
 }
 
+run "a_private_gitlab_ca_is_trusted_only_when_given" {
+  assert {
+    condition     = alltrue([for t, _ in var.tenants : !strcontains(output.runner_helm_values[t], "certsSecretName")])
+    error_message = "Without gitlab_ca_secret the runner must trust only the public CAs."
+  }
+}
+
+run "a_private_gitlab_ca_is_mounted_from_the_named_secret" {
+  variables {
+    gitlab_ca_secret = "gitlab-ca"
+  }
+
+  assert {
+    condition     = alltrue([for t, _ in var.tenants : strcontains(output.runner_helm_values[t], "\ncertsSecretName: gitlab-ca\n")])
+    error_message = "gitlab_ca_secret must become the chart's certsSecretName in every tenant's values."
+  }
+}
+
 run "rejects_a_plain_http_gitlab_url" {
   command = plan
   variables {
