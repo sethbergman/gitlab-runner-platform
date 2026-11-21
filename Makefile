@@ -1,7 +1,7 @@
-.PHONY: help test demo build fmt validate workflows gitlab-e2e tf-validate tf-test manifests tenants rules gitops-values
+.PHONY: help test demo build fmt validate workflows gitlab-e2e terraform-e2e tf-validate tf-test manifests tenants rules gitops-values
 
 help: ## Show targets
-	@grep -E '^[a-z-]+:.*##' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-12s %s\n", $$1, $$2}'
+	@grep -E '^[a-z0-9-]+:.*##' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-14s %s\n", $$1, $$2}'
 
 # Statement coverage `make test` requires. Raise it when tests land, never lower it quietly.
 COVERAGE_FLOOR ?= 70
@@ -32,7 +32,7 @@ workflows:
 
 tf-validate:
 	terraform fmt -check -recursive terraform
-	for d in terraform/modules/runner-fleet terraform/examples/eks; do \
+	for d in terraform/modules/runner-fleet terraform/examples/eks terraform/e2e/kind; do \
 		terraform -chdir=$$d init -backend=false -input=false >/dev/null && terraform -chdir=$$d validate; \
 	done
 
@@ -52,6 +52,14 @@ gitlab-e2e: ## End to end against a real GitLab on kind (slow)
 	printf 'kind: Cluster\napiVersion: kind.x-k8s.io/v1alpha4\nkubeadmConfigPatches:\n  - |\n    kind: KubeletConfiguration\n    failCgroupV1: false\n' | \
 		kind create cluster --name gitlab-e2e --config -
 	.github/scripts/gitlab-e2e.sh; rc=$$?; docker rm -f gitlab-e2e >/dev/null; kind delete cluster --name gitlab-e2e; exit $$rc
+
+# The module applied, planned again and destroyed for real: Kubernetes on a
+# throwaway kind cluster, S3, IAM and STS on moto, Terraform in a container.
+# Needs Docker and kind; takes a few minutes.
+terraform-e2e: ## Apply and destroy the module on kind, AWS on moto
+	printf 'kind: Cluster\napiVersion: kind.x-k8s.io/v1alpha4\nkubeadmConfigPatches:\n  - |\n    kind: KubeletConfiguration\n    failCgroupV1: false\n' | \
+		kind create cluster --name terraform-e2e --config -
+	.github/scripts/terraform-e2e.sh; rc=$$?; kind delete cluster --name terraform-e2e; exit $$rc
 
 # Argo CD CRD schemas for kubeconform, from the datree CRDs catalog pinned to
 # a commit so the check is reproducible. Bump deliberately.

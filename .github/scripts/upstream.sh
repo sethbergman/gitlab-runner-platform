@@ -4,8 +4,8 @@
 #
 #   - the tools CI installs from GitHub releases, each pinned in a file under
 #     .github/versions/ (actionlint, argocd for the e2e job, kubeconform,
-#     prometheus for promtool, terraform) rather than in a workflow, which a workflow token
-#     may not edit;
+#     moto for the Terraform e2e, prometheus for promtool, terraform) rather
+#     than in a workflow, which a workflow token may not edit;
 #   - the gitlab-runner chart every tenant pins (gitops/tenants/*/config.json
 #     and terraform/examples/eks/terraform.tfvars.example);
 #   - the GitLab CE image the gitlab-e2e workflow boots (.github/versions/gitlab).
@@ -54,11 +54,12 @@ github_latest() { # owner/repo, prints the tag of the latest release
 
 # Tools pinned under .github/versions/: pin file, repository, and whether the
 # file holds the tag as is or without its leading v (setup-terraform and the
-# actionlint image take a bare version).
+# actionlint, moto and terraform images take a bare version).
 for spec in \
   "actionlint  rhysd/actionlint      bare" \
   "argocd      argoproj/argo-cd      tag" \
   "kubeconform yannh/kubeconform     tag" \
+  "moto        getmoto/moto          bare" \
   "prometheus  prometheus/prometheus tag" \
   "terraform   hashicorp/terraform   bare"
 do

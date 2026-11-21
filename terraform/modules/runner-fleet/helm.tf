@@ -5,6 +5,7 @@ locals {
       tenant_label       = local.tenant_label
       namespace          = local.namespaces[k]
       gitlab_url         = var.gitlab_url
+      ca_secret          = var.gitlab_ca_secret
       concurrent         = t.concurrent
       token_secret       = t.runner_token_secret
       service_account    = local.service_account
