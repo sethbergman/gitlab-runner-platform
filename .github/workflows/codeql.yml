@@ -49,9 +49,12 @@ jobs:
           build-mode: ${{ matrix.build-mode }}
           queries: security-extended
       # Only the autoscaler is analysed; the module under .github/tools holds
-      # CI's pinned Go tools and no code of its own.
+      # CI's pinned Go tools and no code of its own. CodeQL traces a command
+      # that starts with `go build`, so this one runs from the module's
+      # directory rather than through `go -C`.
       - if: matrix.language == 'go'
-        run: go -C autoscaler build ./...
+        working-directory: autoscaler
+        run: go build ./...
       - uses: github/codeql-action/analyze@1bd86f2fdb4b86187fa4059f16f31a3202acc9ea # v4.39.4
         with:
           category: /language:${{ matrix.language }}
