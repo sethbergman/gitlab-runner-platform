@@ -12,14 +12,16 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
-  pull-requests: write
-  actions: write
+  contents: read
 
 jobs:
   bumps:
     name: Tool pins and gitlab-runner chart
     runs-on: ubuntu-latest
+    permissions:
+      contents: write      # push a branch per bump
+      pull-requests: write # open or refresh its pull request
+      actions: write       # dispatch CI on it
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: |
