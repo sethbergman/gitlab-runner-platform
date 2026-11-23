@@ -3,8 +3,17 @@ name: upstream
 # Dependabot cannot see the tools CI installs from GitHub releases (pinned
 # under .github/versions/) or the gitlab-runner chart the tenants pin. Once a
 # week this compares each with its latest release and opens, or refreshes, one
-# pull request per pin that is behind, with CI dispatched on it. See
-# .github/scripts/upstream.sh.
+# pull request per pin that is behind. See .github/scripts/upstream.sh.
+#
+# It pushes and opens those pull requests as a GitHub App, not with the
+# workflow's own token. Workflows on a pull request that github-actions[bot]
+# opens wait for a maintainer to approve them, and the pull request cannot
+# merge until they have run. An App's pull requests run CI like anyone's. The App needs, on this repository only:
+#
+#   - Repository permissions: Contents read and write, Pull requests read and
+#     write (Metadata read is implied). Nothing else; no webhook.
+#   - Its client ID in the repository variable UPSTREAM_APP_CLIENT_ID, and a
+#     private key in the repository secret UPSTREAM_APP_PRIVATE_KEY.
 
 on:
   schedule:
@@ -18,15 +27,25 @@ jobs:
   bumps:
     name: Tool pins and gitlab-runner chart
     runs-on: ubuntu-latest
-    permissions:
-      contents: write      # push a branch per bump
-      pull-requests: write # open or refresh its pull request
-      actions: write       # dispatch CI on it
     steps:
+      - id: app
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ vars.UPSTREAM_APP_CLIENT_ID }}
+          private-key: ${{ secrets.UPSTREAM_APP_PRIVATE_KEY }}
+          permission-contents: write      # push a branch per bump
+          permission-pull-requests: write # open or refresh its pull request
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+        with:
+          token: ${{ steps.app.outputs.token }}
+      - name: Commit as the App
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          SLUG: ${{ steps.app.outputs.app-slug }}
+        run: |
+          id=$(gh api "users/${SLUG}%5Bbot%5D" --jq .id)
+          git config user.name "${SLUG}[bot]"
+          git config user.email "${id}+${SLUG}[bot]@users.noreply.github.com"
       - run: .github/scripts/upstream.sh
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.app.outputs.token }}
