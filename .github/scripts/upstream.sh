@@ -8,7 +8,10 @@
 #     than in a workflow, which a workflow token may not edit;
 #   - the gitlab-runner chart every tenant pins (gitops/tenants/*/config.json
 #     and terraform/examples/eks/terraform.tfvars.example);
-#   - the GitLab CE image the gitlab-e2e workflow boots (.github/versions/gitlab).
+#   - the GitLab CE image the gitlab-e2e workflow boots (.github/versions/gitlab);
+#   - the warm pool's pause image (deploy/autoscaler/warm-pool.yaml), which
+#     Dependabot skips: registry.k8s.io's `latest` is pause 1.0, so it takes
+#     every 3.x tag for a pre-release.
 #
 # Run from the repository root on a clean checkout of main, with GH_TOKEN set.
 # DRY_RUN=1 prints what would be opened and touches nothing on GitHub.
@@ -115,4 +118,29 @@ Nothing deployed changes. The gitlab-e2e run dispatched on this branch is the ev
 
 Opened by .github/workflows/upstream.yml." .github/versions/gitlab
   dry || gh workflow run gitlab-e2e.yml --ref deps/gitlab
+fi
+
+# The warm pool's pause image, pinned by tag and by the digest of its
+# multi-architecture index: the newest numeric tag on registry.k8s.io.
+pin=$(grep -oE 'registry\.k8s\.io/pause:[^@ ]+@sha256:[0-9a-f]{64}' deploy/autoscaler/warm-pool.yaml)
+current=${pin#*:}
+current=${current%@*}
+latest=$(curl -fsSL https://registry.k8s.io/v2/pause/tags/list |
+  jq -r '.tags[]' | grep -E '^[0-9]+(\.[0-9]+)+$' | sort -V | tail -1)
+echo "pause: pinned ${current}, latest ${latest}"
+if newer "${current}" "${latest}"; then
+  digest=$(curl -fsSIL \
+    -H 'Accept: application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json' \
+    "https://registry.k8s.io/v2/pause/manifests/${latest}" |
+    tr -d '\r' | awk 'tolower($1) == "docker-content-digest:" { d = $2 } END { print d }')
+  if ! [[ "${digest}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+    echo "no index digest for pause:${latest}"; exit 1
+  fi
+  sed -i "s#${pin}#registry.k8s.io/pause:${latest}@${digest}#" deploy/autoscaler/warm-pool.yaml
+  propose deps/pause "Bump the warm pool's pause image to ${latest}" \
+    "The warm pool's placeholders ran registry.k8s.io/pause:${current}; ${latest} is the newest tag on registry.k8s.io, pinned here to the digest of its multi-architecture index, ${digest}.
+
+The GitOps e2e in the CI run dispatched on this branch runs three placeholders from it and checks each runs this digest.
+
+Opened by .github/workflows/upstream.yml." deploy/autoscaler/warm-pool.yaml
 fi
