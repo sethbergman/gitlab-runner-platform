@@ -2,7 +2,7 @@
 
 ## Reporting a vulnerability
 
-Use GitHub's private vulnerability reporting: **Security → Report a vulnerability** on this repository. It opens a private advisory that only the maintainer can see. Please do not open a public issue for anything exploitable.
+Use GitHub's private vulnerability reporting: [report a vulnerability](https://github.com/sethbergman/gitlab-runner-platform/security/advisories/new), or **Security → Report a vulnerability** on this repository. It opens a private advisory that only the maintainer can see. Please do not open a public issue for anything exploitable.
 
 Expect an acknowledgement within a week. Fixes ship as a new `v*` tag of the autoscaler image or a change to the Terraform module and manifests, and the advisory is published once a fix is available.
 
@@ -27,4 +27,4 @@ The GitLab Runner chart, Argo CD and the cloud providers are upstream projects; 
   gh attestation verify oci://ghcr.io/sethbergman/warmpool-autoscaler:<tag> --owner sethbergman
   ```
 
-- Dependabot and a weekly upstream check keep actions, Go, the base image, providers, CI tools and the runner chart current; `govulncheck` and Checkov run on every push.
+- Dependabot and a weekly upstream check keep actions, Go, the base image, providers, CI tools and the runner chart current; `govulncheck`, Checkov and CodeQL run on every push, and OpenSSF Scorecard on `main` and weekly, with findings in the Security tab.

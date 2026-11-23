@@ -67,8 +67,9 @@ jobs:
         with:
           go-version-file: autoscaler/go.mod
           cache: false
-      - run: go install golang.org/x/vuln/cmd/govulncheck@latest
-      - run: govulncheck -C autoscaler ./...
+      # govulncheck is pinned, with its dependencies by hash, in the tools
+      # module .github/tools, which Dependabot keeps current.
+      - run: go -C .github/tools tool govulncheck -C ../../autoscaler ./...
 
   terraform:
     name: Terraform (fmt, validate)
