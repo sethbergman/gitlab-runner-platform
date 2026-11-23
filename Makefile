@@ -1,4 +1,4 @@
-.PHONY: help test demo build fmt validate workflows gitlab-e2e terraform-e2e tf-validate tf-test manifests tenants rules gitops-values
+.PHONY: help test fuzz demo build fmt validate workflows gitlab-e2e terraform-e2e tf-validate tf-test manifests tenants rules gitops-values
 
 help: ## Show targets
 	@grep -E '^[a-z0-9-]+:.*##' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-14s %s\n", $$1, $$2}'
@@ -11,6 +11,15 @@ test: ## gofmt, go vet, race-checked unit tests, coverage floor
 	cd autoscaler && go vet ./... && go test -race -covermode=atomic -coverprofile=coverage.out ./...
 	cd autoscaler && go tool cover -func=coverage.out | awk -v floor=$(COVERAGE_FLOOR) \
 		'/^total:/ { sub("%", "", $$NF); printf "coverage %s%% (floor %s%%)\n", $$NF, floor; exit !($$NF >= floor) }'
+
+# Each fuzz target runs for FUZZTIME; CI gives each 30 seconds. A failing
+# input is written under autoscaler/internal/*/testdata/fuzz/: commit it and it
+# runs with every `make test` from then on.
+FUZZTIME ?= 30s
+
+fuzz: ## Fuzz the schedule parser and GitLab pagination, FUZZTIME each
+	cd autoscaler && go test -run '^$$' -fuzz '^FuzzParseSchedule$$' -fuzztime $(FUZZTIME) ./internal/policy
+	cd autoscaler && go test -run '^$$' -fuzz '^FuzzPagination$$' -fuzztime $(FUZZTIME) ./internal/gitlab
 
 demo: ## Run the autoscaler against a replayed queue, no cluster needed
 	cd autoscaler && go run ./cmd/warmpool-autoscaler \
