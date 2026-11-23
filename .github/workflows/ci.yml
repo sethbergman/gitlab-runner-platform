@@ -35,6 +35,11 @@ jobs:
           cache: false
       - name: gofmt, go vet, race-checked tests, coverage floor
         run: make test
+      - name: Fuzz the schedule parser and GitLab pagination, 30s each
+        run: make fuzz FUZZTIME=30s
+      - name: Failing fuzz input, to commit as a regression test
+        if: failure()
+        run: find autoscaler -path '*/testdata/fuzz/*' -type f -print -exec cat {} \;
       - name: build
         run: CGO_ENABLED=0 go build -trimpath -o "$RUNNER_TEMP/warmpool-autoscaler" ./cmd/warmpool-autoscaler
         working-directory: autoscaler

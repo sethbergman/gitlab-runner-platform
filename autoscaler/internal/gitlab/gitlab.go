@@ -62,8 +62,7 @@ func (c *Client) pendingForProject(ctx context.Context, project string) (int, er
 		maxPages = 10
 	}
 	count := 0
-	page := "1"
-	for i := 0; i < maxPages && page != ""; i++ {
+	for page, i := 1, 0; i < maxPages; i++ {
 		jobs, next, err := c.fetchPage(ctx, project, page)
 		if err != nil {
 			return 0, err
@@ -73,15 +72,23 @@ func (c *Client) pendingForProject(ctx context.Context, project string) (int, er
 				count++
 			}
 		}
+		// Follow X-Next-Page only forward. A server that points back at a
+		// page already read would otherwise have its jobs counted again, and
+		// the warm pool sized for jobs that do not exist.
+		if next <= page {
+			break
+		}
 		page = next
 	}
 	return count, nil
 }
 
-func (c *Client) fetchPage(ctx context.Context, project, page string) ([]job, string, error) {
+// fetchPage returns one page of pending jobs and the X-Next-Page number, or 0
+// when the header is absent or not a number.
+func (c *Client) fetchPage(ctx context.Context, project string, page int) ([]job, int, error) {
 	u, err := url.Parse(strings.TrimRight(c.BaseURL, "/"))
 	if err != nil {
-		return nil, "", fmt.Errorf("gitlab: base url: %w", err)
+		return nil, 0, fmt.Errorf("gitlab: base url: %w", err)
 	}
 	// Projects may be numeric IDs or full paths; paths must be URL-encoded.
 	u = u.JoinPath("api", "v4", "projects")
@@ -90,33 +97,33 @@ func (c *Client) fetchPage(ctx context.Context, project, page string) ([]job, st
 	q := url.Values{}
 	q.Add("scope[]", "pending")
 	q.Set("per_page", "100")
-	q.Set("page", page)
+	q.Set("page", strconv.Itoa(page))
 	u.RawQuery = q.Encode()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
 	if err != nil {
-		return nil, "", err
+		return nil, 0, err
 	}
 	req.Header.Set("PRIVATE-TOKEN", c.Token)
 	req.Header.Set("Accept", "application/json")
 
 	resp, err := c.httpClient().Do(req)
 	if err != nil {
-		return nil, "", fmt.Errorf("gitlab: project %s: %w", project, err)
+		return nil, 0, fmt.Errorf("gitlab: project %s: %w", project, err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		return nil, "", fmt.Errorf("gitlab: project %s: %s: %s", project, resp.Status, strings.TrimSpace(string(body)))
+		return nil, 0, fmt.Errorf("gitlab: project %s: %s: %s", project, resp.Status, strings.TrimSpace(string(body)))
 	}
 	var jobs []job
 	if err := json.NewDecoder(resp.Body).Decode(&jobs); err != nil {
-		return nil, "", fmt.Errorf("gitlab: project %s: decode: %w", project, err)
+		return nil, 0, fmt.Errorf("gitlab: project %s: decode: %w", project, err)
 	}
-	next := resp.Header.Get("X-Next-Page")
-	if _, err := strconv.Atoi(next); err != nil {
-		next = ""
+	next, err := strconv.Atoi(resp.Header.Get("X-Next-Page"))
+	if err != nil {
+		next = 0
 	}
 	return jobs, next, nil
 }

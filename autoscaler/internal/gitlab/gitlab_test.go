@@ -100,6 +100,26 @@ func TestPendingJobsSurfacesAPIErrors(t *testing.T) {
 	}
 }
 
+func TestPaginationOnlyMovesForward(t *testing.T) {
+	var pages []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		pages = append(pages, r.URL.Query().Get("page"))
+		w.Header().Set("X-Next-Page", map[string]string{"1": "+3", "3": "2"}[r.URL.Query().Get("page")])
+		_ = json.NewEncoder(w).Encode([]job{{1, nil}})
+	}))
+	defer srv.Close()
+
+	c := &Client{BaseURL: srv.URL, Projects: []string{"1"}, RunUntagged: true}
+	got, err := c.PendingJobs(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Page 1 points on to "+3", read as page 3, which points back to 2: stop.
+	if strings.Join(pages, ",") != "1,3" || got != 2 {
+		t.Fatalf("pages %q, PendingJobs = %d; want pages 1,3 and 2 jobs", pages, got)
+	}
+}
+
 func TestPendingJobsRequiresProjects(t *testing.T) {
 	if _, err := (&Client{}).PendingJobs(context.Background()); err == nil {
 		t.Fatal("want error with no projects")
@@ -110,7 +130,7 @@ func TestMaxPagesBoundsRunawayPagination(t *testing.T) {
 	calls := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls++
-		w.Header().Set("X-Next-Page", "99")
+		w.Header().Set("X-Next-Page", fmt.Sprint(calls+1)) // there is always another page
 		_ = json.NewEncoder(w).Encode([]job{{int64(calls), nil}})
 	}))
 	defer srv.Close()
