@@ -7,8 +7,13 @@ updates:
     directories: ["/autoscaler", "/.github/tools"]
     schedule: { interval: weekly }
   - package-ecosystem: docker
-    directory: /autoscaler
+    # The Dockerfile's base images, and the warm pool's pause image.
+    directories: ["/autoscaler", "/deploy/autoscaler"]
     schedule: { interval: weekly }
+    ignore:
+      # This repository's own image is rolled out by hand from each release,
+      # once its attestation exists; see docs/runbook.md.
+      - dependency-name: ghcr.io/sethbergman/warmpool-autoscaler
   - package-ecosystem: terraform
     directories: ["/terraform/modules/runner-fleet", "/terraform/examples/eks", "/terraform/e2e/kind"]
     schedule: { interval: weekly }

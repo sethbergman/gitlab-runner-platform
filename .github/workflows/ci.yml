@@ -314,6 +314,19 @@ jobs:
           echo "sync=${sync} replicas=${replicas}"
           test "${sync}" = Synced
           test "${replicas}" = 3
+      - name: The placeholders run the pinned pause image
+        run: |
+          # They schedule only on CI nodes; make the kind node one.
+          kubectl label node --all workload=ci --overwrite
+          kubectl -n gitlab-runner-system rollout status deploy/runner-warm-pool --timeout=180s
+          pinned=$(grep -oE 'registry\.k8s\.io/pause:[^@ ]+@sha256:[0-9a-f]{64}' deploy/autoscaler/warm-pool.yaml)
+          running=$(kubectl -n gitlab-runner-system get pods -l app.kubernetes.io/name=runner-warm-pool \
+            -o jsonpath='{range .items[*]}{.status.containerStatuses[0].imageID}{"\n"}{end}')
+          echo "pinned ${pinned}"; echo "${running}"
+          test "$(echo "${running}" | wc -l)" = 3
+          if echo "${running}" | grep -vqF "@${pinned#*@}"; then
+            echo "a placeholder runs an image other than the pinned digest"; exit 1
+          fi
       - name: Drift in a field Git owns is reverted
         run: |
           # Git sets terminationGracePeriodSeconds: 0; change it by hand.

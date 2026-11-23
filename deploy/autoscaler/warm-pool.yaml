@@ -22,8 +22,7 @@ metadata:
   annotations:
     checkov.io/skip1: CKV_K8S_8=pause container has nothing to probe
     checkov.io/skip2: CKV_K8S_9=pause container has nothing to probe
-    checkov.io/skip3: CKV_K8S_43=tag is pinned; pin the digest your registry mirror serves
-    checkov.io/skip4: CKV_K8S_15=IfNotPresent is intended so placeholders start from the node's cache
+    checkov.io/skip3: CKV_K8S_15=IfNotPresent is intended so placeholders start from the node's cache
 spec:
   replicas: 0 # owned by warmpool-autoscaler; do not set in GitOps diffs
   revisionHistoryLimit: 2
@@ -54,7 +53,9 @@ spec:
           type: RuntimeDefault
       containers:
         - name: hold
-          image: registry.k8s.io/pause:3.10
+          # Pinned to the multi-architecture index by digest, which a registry
+          # mirror serves unchanged; Dependabot moves the tag and digest together.
+          image: registry.k8s.io/pause:3.10@sha256:ee6521f290b2168b6e0935a181d4cff9be1ac3f505666ef0e3c98fae8199917a
           # Size one placeholder like one typical job pod (build + helper),
           # matching job_cpu_request / job_memory_request in Terraform.
           resources:
