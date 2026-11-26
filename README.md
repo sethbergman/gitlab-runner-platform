@@ -90,7 +90,7 @@ make validate   # actionlint, terraform fmt/validate and test, kubeconform, prom
 - Runner tokens and the GitLab API token live in Kubernetes Secrets synced from a secret store, never in Terraform state or Git.
 - The autoscaler runs as non-root on a distroless image with a read-only root filesystem, and its RBAC allows `get` and `patch` on a single Deployment's scale.
 - Job namespaces enforce Pod Security `baseline` (no privileged pods) and warn on `restricted`.
-- Every `v*` tag publishes the autoscaler image for linux/amd64 and linux/arm64 with a BuildKit SBOM and provenance on the index, a Sigstore-signed build-provenance attestation, and a GitHub Release carrying the digest, created only once every CI job is green. Verify with `gh attestation verify oci://ghcr.io/sethbergman/warmpool-autoscaler:<tag> --owner sethbergman`.
+- Every `v*` tag publishes the autoscaler image for linux/amd64 and linux/arm64 with a BuildKit SBOM and provenance on the index, a Sigstore-signed build-provenance attestation, and a GitHub Release carrying the digest, created only once every CI job is green, with the signed provenance (a Sigstore bundle and its DSSE envelope as `.intoto.jsonl`) and each platform's SPDX SBOM attached. Verify with `gh attestation verify oci://ghcr.io/sethbergman/warmpool-autoscaler:<tag> --owner sethbergman`.
 
 ## Status and limits
 
