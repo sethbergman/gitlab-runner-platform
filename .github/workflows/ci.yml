@@ -162,6 +162,8 @@ jobs:
           kubectl create namespace argocd
           kubectl apply -n argocd --server-side --force-conflicts \
             -f "https://raw.githubusercontent.com/argoproj/argo-cd/${ARGOCD_VERSION}/manifests/install.yaml"
+          # Redis too: the repo-server caches every manifest it generates there.
+          kubectl -n argocd rollout status deploy/argocd-redis --timeout=300s
           kubectl -n argocd rollout status deploy/argocd-repo-server --timeout=300s
           kubectl -n argocd rollout status statefulset/argocd-application-controller --timeout=300s
           kubectl -n argocd rollout status deploy/argocd-applicationset-controller --timeout=300s
@@ -181,8 +183,16 @@ jobs:
           # objects it manages are applied in the next step pointed at this
           # commit, and a self-healing root would reset them to what Git says.
           yq 'del(.spec.syncPolicy)' "$RUNNER_TEMP/gitops/bootstrap/root.yaml" | kubectl apply -f -
-          for _ in $(seq 1 60); do
+          # A first manifest request that fails (once, on main, it timed out a
+          # second after the app was created) is retried only on Argo CD's own
+          # schedule, minutes away. Ask for a fresh one every 30s instead.
+          for i in $(seq 1 60); do
             kubectl -n argocd get application/platform-root -o jsonpath='{.status.resources[*].kind}' | grep -q . && break
+            if [ $((i % 6)) = 0 ] && kubectl -n argocd get application/platform-root \
+                -o jsonpath='{.status.conditions[*].type}' | grep -q ComparisonError; then
+              echo "ComparisonError after ~$((i * 5))s; requesting a hard refresh"
+              kubectl -n argocd annotate application/platform-root argocd.argoproj.io/refresh=hard --overwrite
+            fi
             sleep 5
           done
           conditions=$(kubectl -n argocd get application/platform-root -o jsonpath='{.status.conditions[*].type}')
@@ -348,6 +358,10 @@ jobs:
         run: |
           kubectl -n argocd get applications,applicationsets
           kubectl -n argocd get applications -o yaml
+          kubectl -n argocd get pods -o wide
+          for w in deploy/argocd-repo-server statefulset/argocd-application-controller deploy/argocd-redis; do
+            echo "== ${w}"; kubectl -n argocd logs "${w}" --tail=60 || true
+          done
 
   checkov:
     name: Checkov (IaC security)
