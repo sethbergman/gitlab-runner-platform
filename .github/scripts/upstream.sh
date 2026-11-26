@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Opens, or refreshes, one pull request per upstream pin that is behind its
-# latest release, then runs CI on it. Dependabot sees none of these:
+# latest release. Dependabot sees none of these:
 #
 #   - the tools CI installs from GitHub releases, each pinned in a file under
 #     .github/versions/ (actionlint, argocd for the e2e job, kubeconform,
@@ -14,6 +14,9 @@
 #     every 3.x tag for a pre-release.
 #
 # Run from the repository root on a clean checkout of main, with GH_TOKEN set.
+# CI runs on each pull request through its pull_request triggers (gitlab-e2e
+# through its paths filter). When the token is the workflow's own, as in
+# upstream.yml, GitHub holds those runs until a maintainer approves them.
 # DRY_RUN=1 prints what would be opened and touches nothing on GitHub.
 set -euo pipefail
 
@@ -21,11 +24,13 @@ dry() { [ "${DRY_RUN:-0}" != 0 ]; }
 newer() { [ "$1" != "$2" ] && [ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | tail -1)" = "$2" ]; } # newer current latest
 
 # Commits the working-tree edits on $branch, pushes, and opens or refreshes the
-# pull request, then dispatches CI on the branch (a push from GITHUB_TOKEN
-# does not trigger it by itself).
+# pull request, its body ending with how its CI gets to run.
 propose() { # branch title body file...
   local branch=$1 title=$2 body=$3 open
   shift 3
+  body+="
+
+Opened by .github/workflows/upstream.yml. GitHub holds the workflow runs on a pull request github-actions[bot] opens until a maintainer approves them: approve them here to run CI."
   if dry; then
     echo "would open '${title}' on ${branch}:"
     git --no-pager diff --stat -- "$@"
@@ -46,7 +51,6 @@ propose() { # branch title body file...
   else
     gh pr create --head "${branch}" --base main --title "${title}" --body "${body}"
   fi
-  gh workflow run ci.yml --ref "${branch}"
   git checkout -q main
 }
 
@@ -77,9 +81,7 @@ do
   propose "deps/${name}" "Bump ${name} to ${latest} in CI" \
     "CI pinned ${name} ${current}; ${latest} is the latest release: https://github.com/${repo}/releases/tag/${tag}
 
-Nothing deployed changes: this only moves the version CI installs. A green run here is the evidence that the checks still pass on it.
-
-Opened by .github/workflows/upstream.yml." ".github/versions/${name}"
+Nothing deployed changes: this only moves the version CI installs. A green run here is the evidence that the checks still pass on it." ".github/versions/${name}"
 done
 
 # gitlab-runner chart, as pinned by every tenant and the Terraform example.
@@ -98,13 +100,12 @@ if newer "${current}" "${latest}"; then
   propose deps/gitlab-runner-chart "Bump the gitlab-runner chart to ${latest}" \
     "Every tenant pinned gitlab-runner chart ${current}; ${latest} is the latest release. Changelog: https://gitlab.com/gitlab-org/charts/gitlab-runner/-/blob/main/CHANGELOG.md
 
-Changes gitops/tenants/*/config.json and the Terraform example's chart_version together, which the Terraform test requires. CI renders every tenant with the new chart and syncs them through Argo CD on kind.
-
-Opened by .github/workflows/upstream.yml." gitops/tenants/*/config.json terraform/examples/eks/terraform.tfvars.example
+Changes gitops/tenants/*/config.json and the Terraform example's chart_version together, which the Terraform test requires. CI renders every tenant with the new chart and syncs them through Argo CD on kind." gitops/tenants/*/config.json terraform/examples/eks/terraform.tfvars.example
 fi
 
 # GitLab CE for the gitlab-e2e workflow: the newest x.y.z-ce.0 on Docker Hub.
-# That workflow is what the bump must pass, so it is dispatched too.
+# That workflow is what the bump must pass; it runs on pull requests that
+# change .github/versions/gitlab.
 current=$(cat .github/versions/gitlab)
 latest=$(curl -fsSL 'https://hub.docker.com/v2/repositories/gitlab/gitlab-ce/tags?page_size=100&ordering=last_updated' |
   jq -r '.results[].name' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+-ce\.0$' | sort -V | tail -1)
@@ -114,10 +115,7 @@ if newer "${current}" "${latest}"; then
   propose deps/gitlab "Bump GitLab CE to ${latest} in the GitLab e2e" \
     "The GitLab e2e booted GitLab CE ${current}; ${latest} is the newest release on Docker Hub: https://hub.docker.com/r/gitlab/gitlab-ce/tags
 
-Nothing deployed changes. The gitlab-e2e run dispatched on this branch is the evidence that the autoscaler and the tenant runners still work against it.
-
-Opened by .github/workflows/upstream.yml." .github/versions/gitlab
-  dry || gh workflow run gitlab-e2e.yml --ref deps/gitlab
+Nothing deployed changes. The gitlab-e2e run on this pull request is the evidence that the autoscaler and the tenant runners still work against it." .github/versions/gitlab
 fi
 
 # The warm pool's pause image, pinned by tag and by the digest of its
@@ -140,7 +138,5 @@ if newer "${current}" "${latest}"; then
   propose deps/pause "Bump the warm pool's pause image to ${latest}" \
     "The warm pool's placeholders ran registry.k8s.io/pause:${current}; ${latest} is the newest tag on registry.k8s.io, pinned here to the digest of its multi-architecture index, ${digest}.
 
-The GitOps e2e in the CI run dispatched on this branch runs three placeholders from it and checks each runs this digest.
-
-Opened by .github/workflows/upstream.yml." deploy/autoscaler/warm-pool.yaml
+The GitOps e2e in this pull request's CI runs three placeholders from it and checks each runs this digest." deploy/autoscaler/warm-pool.yaml
 fi
