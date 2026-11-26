@@ -55,7 +55,7 @@ spec:
         - name: hold
           # Pinned to the multi-architecture index by digest, which a registry
           # mirror serves unchanged. upstream.yml moves the tag and digest together.
-          image: registry.k8s.io/pause:3.10@sha256:ee6521f290b2168b6e0935a181d4cff9be1ac3f505666ef0e3c98fae8199917a
+          image: registry.k8s.io/pause:3.10.2@sha256:f548e0e8e3dc1896ca956272154dde3314e8cc4fde0a57577ee9fa1c63f5baf4
           # Size one placeholder like one typical job pod (build + helper),
           # matching job_cpu_request / job_memory_request in Terraform.
           resources:
