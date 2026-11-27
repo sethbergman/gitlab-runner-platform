@@ -27,4 +27,6 @@ The GitLab Runner chart, Argo CD and the cloud providers are upstream projects; 
   gh attestation verify oci://ghcr.io/sethbergman/warmpool-autoscaler:<tag> --owner sethbergman
   ```
 
+  Each GitHub Release also carries that attestation as a Sigstore bundle (`warmpool-autoscaler-<tag>.sigstore.json`), which verifies without the attestations API: add `--bundle <file>` to the command above.
+
 - Dependabot and a weekly upstream check keep actions, Go, the base images, the warm pool's pause image, providers, CI tools and the runner chart current; `govulncheck`, Checkov and CodeQL run on every push, and OpenSSF Scorecard on `main` and weekly, with findings in the Security tab.

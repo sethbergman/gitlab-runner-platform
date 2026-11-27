@@ -72,7 +72,7 @@ A release is a tag on `main`:
 git tag -a v0.2.0 -m "v0.2.0" && git push origin v0.2.0
 ```
 
-CI builds and pushes `ghcr.io/sethbergman/warmpool-autoscaler:v0.2.0` for linux/amd64 and linux/arm64 with a BuildKit SBOM and provenance on the image index, signs a build-provenance attestation for it through Sigstore, and, once every other job is green, creates the GitHub Release with the image digest and the verify commands in its notes. A tag with a hyphen (`v0.2.0-rc.1`) becomes a prerelease.
+CI builds and pushes `ghcr.io/sethbergman/warmpool-autoscaler:v0.2.0` for linux/amd64 and linux/arm64 with a BuildKit SBOM and provenance on the image index, signs a build-provenance attestation for it through Sigstore, and, once every other job is green, creates the GitHub Release with the image digest and the verify commands in its notes. Before publishing, it checks that the attestation's Sigstore bundle verifies, then attaches it, the same signed provenance as `.intoto.jsonl`, and the SPDX SBOM of each platform's image. A tag with a hyphen (`v0.2.0-rc.1`) becomes a prerelease.
 
 Then roll it out: pin the tag and digest from the release notes in `deploy/autoscaler/deployment.yaml` and open a pull request. CI verifies the digest's signed attestation against this repository's workflow, then the GitOps e2e proves the image boots, before the pull request can merge. To check by hand:
 

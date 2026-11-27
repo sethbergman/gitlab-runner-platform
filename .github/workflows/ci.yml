@@ -421,7 +421,9 @@ jobs:
 
   # On a v* tag, once every job is green: sign a build-provenance attestation
   # for the pushed image through Sigstore and create the GitHub Release
-  # carrying the image digest and the commands that verify it.
+  # carrying the image digest, the commands that verify it, and as assets the
+  # signed provenance and the SBOMs, for whoever cannot query GHCR or the
+  # attestations API.
   release:
     name: GitHub Release (tags)
     if: startsWith(github.ref, 'refs/tags/v')
@@ -441,10 +443,38 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        id: provenance
         with:
           subject-name: ${{ env.IMAGE }}
           subject-digest: ${{ needs.image.outputs.digest }}
           push-to-registry: true
+      - name: Gather the release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          DIGEST: ${{ needs.image.outputs.digest }}
+          BUNDLE: ${{ steps.provenance.outputs.bundle-path }}
+        run: |
+          mkdir "$RUNNER_TEMP/assets"
+          cd "$RUNNER_TEMP/assets"
+          name="warmpool-autoscaler-${TAG}"
+          # The Sigstore bundle just signed: the SLSA provenance for the image
+          # digest, its signature and certificate, and the transparency-log
+          # entry. Check it verifies before publishing it.
+          cp "${BUNDLE}" "${name}.sigstore.json"
+          gh attestation verify "oci://${IMAGE}@${DIGEST}" --bundle "${name}.sigstore.json" \
+            --repo "${GITHUB_REPOSITORY}" --signer-workflow "${GITHUB_REPOSITORY}/.github/workflows/ci.yml"
+          # The same signed statement as a DSSE envelope, one per line, the
+          # form in-toto tooling reads.
+          jq -ce 'select(.dsseEnvelope.payloadType == "application/vnd.in-toto+json") | .dsseEnvelope' \
+            "${name}.sigstore.json" > "${name}.intoto.jsonl"
+          # BuildKit's SPDX SBOM for each platform, as attached to the image.
+          docker buildx imagetools inspect "${IMAGE}@${DIGEST}" --format '{{ json .SBOM }}' > "$RUNNER_TEMP/sbom.json"
+          for platform in linux/amd64 linux/arm64; do
+            jq -e --arg p "${platform}" '.[$p].SPDX | select(.spdxVersion)' "$RUNNER_TEMP/sbom.json" \
+              > "${name}-${platform//\//-}.spdx.json"
+          done
+          ls -l
       - name: Create the release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -467,8 +497,18 @@ jobs:
             echo "gh attestation verify oci://${IMAGE}:${TAG} --owner ${OWNER}"
             echo "docker buildx imagetools inspect ${IMAGE}:${TAG} --format '{{ json .SBOM }}'"
             echo '```'
+            echo
+            echo "## Assets"
+            echo
+            echo "- \`warmpool-autoscaler-${TAG}.sigstore.json\`: the signed build-provenance attestation as a Sigstore bundle, which verifies without querying the attestations API:"
+            echo
+            echo '  ```'
+            echo "  gh attestation verify oci://${IMAGE}@${DIGEST} --bundle warmpool-autoscaler-${TAG}.sigstore.json --repo ${GH_REPO}"
+            echo '  ```'
+            echo "- \`warmpool-autoscaler-${TAG}.intoto.jsonl\`: the same signed SLSA provenance as a DSSE envelope."
+            echo "- \`warmpool-autoscaler-${TAG}-linux-amd64.spdx.json\`, \`-linux-arm64.spdx.json\`: the SPDX SBOM BuildKit attached to each platform's image."
           } > "$RUNNER_TEMP/notes.md"
           args=()
           case "$TAG" in *-*) args+=(--prerelease) ;; esac
           gh release create "$TAG" --verify-tag --title "$TAG" --generate-notes \
-            --notes-file "$RUNNER_TEMP/notes.md" "${args[@]}"
+            --notes-file "$RUNNER_TEMP/notes.md" "${args[@]}" "$RUNNER_TEMP"/assets/*
